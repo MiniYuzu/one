@@ -15,7 +15,7 @@ export function createMainWindow(): BrowserWindow {
     show: false,
     titleBarStyle: 'hiddenInset',
     webPreferences: {
-      preload: path.join(__dirname, '../preload/preload.js'),
+      preload: path.join(__dirname, 'index.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -26,7 +26,7 @@ export function createMainWindow(): BrowserWindow {
   if (process.env.ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
+    mainWindow.loadFile(path.join(__dirname, 'renderer/index.html'))
   }
 
   mainWindow.once('ready-to-show', () => {

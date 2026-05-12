@@ -7,15 +7,19 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       lib: {
-        entry: 'src/main/main.ts',
+        entry: {
+          main: 'src/main/main.ts',
+          engine: 'src/engine/engine.ts',
+        },
         formats: ['cjs'],
-        fileName: () => 'main.js',
+        fileName: (_format, entryName) => `${entryName}.cjs`,
       },
-      outDir: 'out/main',
+      outDir: 'out',
     },
     resolve: {
       alias: {
         '@main': path.resolve('src/main'),
+        '@engine': path.resolve('src/engine'),
         '@shared': path.resolve('src/shared'),
       },
     },
@@ -26,9 +30,10 @@ export default defineConfig({
       lib: {
         entry: 'src/preload/index.ts',
         formats: ['cjs'],
-        fileName: () => 'preload.js',
+        fileName: () => 'index.cjs',
       },
-      outDir: 'out/preload',
+      outDir: 'out',
+      emptyOutDir: false,
     },
     resolve: {
       alias: {

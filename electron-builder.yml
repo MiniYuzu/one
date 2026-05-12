@@ -1,0 +1,20 @@
+appId: com.bank.one-ai-agent
+productName: ONE
+directories:
+  output: dist
+electronDownload:
+  mirror: https://npmmirror.com/mirrors/electron/
+files:
+  - out/**/*
+  - resources/**/*
+win:
+  target:
+    - target: nsis
+      arch: x64
+    - target: portable
+      arch: x64
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+portable:
+  artifactName: ONE-Portable-${version}.exe

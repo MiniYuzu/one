@@ -148,3 +148,4 @@ process.parentPort?.on('message', async (event) => {
 
 startHealthCheck()
 sendEvent({ id: generateId(), type: 'engine:ready', payload: {} })
+injectDayZeroWelcome('default')

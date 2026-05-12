@@ -3,10 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "main": "out/main.cjs",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "build:win": "electron-vite build && electron-builder --win",
+    "build:win:portable": "electron-vite build && electron-builder --win portable",
     "preview": "electron-vite preview",
     "postinstall": "electron-builder install-app-deps"
   },

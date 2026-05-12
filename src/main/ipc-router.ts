@@ -45,7 +45,7 @@ export function setupIpcRouter(mainWindow: BrowserWindow): void {
 }
 
 export function spawnEngine(mainWindow: BrowserWindow): Electron.UtilityProcess {
-  const enginePath = path.join(__dirname, '../engine/engine.js')
+  const enginePath = path.join(__dirname, 'engine.cjs')
   engineProcess = utilityProcess.fork(enginePath, [], {
     serviceName: 'one-engine',
     stdio: 'pipe',
