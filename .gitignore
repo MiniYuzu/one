@@ -1,0 +1,10 @@
+.claude
+*.preview.html
+# Design preview artifacts
+vendor
+node_modules/
+out/
+dist/
+*.log
+.DS_Store
+.env
