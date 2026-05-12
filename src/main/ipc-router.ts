@@ -49,6 +49,10 @@ export function spawnEngine(mainWindow: BrowserWindow): Electron.UtilityProcess 
   engineProcess = utilityProcess.fork(enginePath, [], {
     serviceName: 'one-engine',
     stdio: 'pipe',
+    env: {
+      ...process.env,
+      ONE_CONFIG_PATH: path.join(app.getPath('userData'), 'config.json'),
+    },
   })
 
   const { port1, port2 } = new MessageChannelMain()
