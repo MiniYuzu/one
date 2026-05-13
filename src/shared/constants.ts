@@ -17,10 +17,10 @@ export const SUPPORTED_FILE_EXTENSIONS = ['.csv', '.xlsx', '.docx', '.pptx', '.m
 
 export const DAY_ZERO_WELCOME = {
   content:
-    '你好！我是 ONE，你的专属 AI 助手。我可以帮你处理数据、撰写文档、生成报告。今天想从什么开始？',
+    '你好！我是你的专属 AI 办公助手。你可以直接将 Excel、Word 或 PDF 拖拽到这个窗口，或者试试点击下方的快捷指令：',
   pills: [
-    { label: '分析 Excel 数据', prompt: '帮我分析一份 Excel 数据文件' },
-    { label: '撰写工作报告', prompt: '帮我撰写一份工作周报' },
-    { label: '生成 PPT 大纲', prompt: '帮我生成一份季度汇报的 PPT 大纲' },
+    { label: '📊 帮我分析并清洗 Excel 销售数据', prompt: '帮我分析并清洗 Excel 销售数据' },
+    { label: '📝 将这份文本排版为标准公文格式', prompt: '将这份文本排版为标准公文格式' },
+    { label: '📊 根据数据生成一份汇报 PPT', prompt: '根据数据生成一份汇报 PPT' },
   ],
 }

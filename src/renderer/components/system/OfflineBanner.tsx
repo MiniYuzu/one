@@ -1,5 +1,5 @@
 // src/renderer/components/system/OfflineBanner.tsx
-import { WifiOff, RefreshCw } from 'lucide-react'
+import { WifiOff } from 'lucide-react'
 
 interface OfflineBannerProps {
   offline: boolean
@@ -15,9 +15,8 @@ export function OfflineBanner({ offline, onRetry }: OfflineBannerProps) {
       <span>网络不可用，仅支持查看历史会话</span>
       <button
         onClick={onRetry}
-        className="ml-2 flex items-center gap-1 rounded-full bg-rose-100 px-3 py-1 text-xs font-medium text-rose-700 hover:bg-rose-200 dark:bg-rose-800/40 dark:text-rose-300 dark:hover:bg-rose-800/60"
+        className="ml-1 text-xs font-medium text-rose-600 underline-offset-2 hover:underline dark:text-rose-400"
       >
-        <RefreshCw size={12} />
         重试
       </button>
     </div>

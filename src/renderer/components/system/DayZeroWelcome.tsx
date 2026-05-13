@@ -1,5 +1,5 @@
 // src/renderer/components/system/DayZeroWelcome.tsx
-import { Sparkles } from 'lucide-react'
+import { AIAvatar } from '../chat/AIAvatar.js'
 
 interface DayZeroWelcomeProps {
   content: string
@@ -9,22 +9,25 @@ interface DayZeroWelcomeProps {
 
 export function DayZeroWelcome({ content, pills, onPillClick }: DayZeroWelcomeProps) {
   return (
-    <div className="animate-fade-up mx-auto max-w-2xl py-8">
-      <div className="flex items-center gap-2 text-indigo-500 dark:text-indigo-400">
-        <Sparkles size={18} />
-        <span className="text-sm font-medium">ONE AI Agent</span>
-      </div>
-      <p className="mt-3 text-base leading-relaxed text-slate-700 dark:text-slate-300">{content}</p>
-      <div className="mt-4 flex flex-wrap gap-2">
-        {pills.map((pill, idx) => (
-          <button
-            key={idx}
-            onClick={() => onPillClick(pill.prompt)}
-            className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100 dark:border-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300 dark:hover:bg-indigo-500/20"
-          >
-            {pill.label}
-          </button>
-        ))}
+    <div className="animate-fade-up flex gap-3">
+      <AIAvatar />
+      <div className="max-w-2xl">
+        <div className="rounded-2xl rounded-tl-sm bg-slate-100 px-4 py-3 shadow-sm dark:bg-slate-800">
+          <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-slate-300">
+            {content}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {pills.map((pill, idx) => (
+              <button
+                key={idx}
+                onClick={() => onPillClick(pill.prompt)}
+                className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600 shadow-sm transition hover:border-indigo-300 hover:text-indigo-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-indigo-500 dark:hover:text-indigo-300"
+              >
+                {pill.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   )
