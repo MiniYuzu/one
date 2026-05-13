@@ -6,6 +6,7 @@ export interface EngineRequest {
     | 'chat:send'
     | 'chat:cancel'
     | 'chat:retry'
+    | 'chat:retry-cancel'
     | 'config:update'
     | 'health:check'
   payload: unknown

@@ -2,11 +2,13 @@
 import axios, { type AxiosResponse } from 'axios'
 import { createParser, type EventSourceMessage } from 'eventsource-parser'
 import type { AppConfig } from '../../shared/ipc-types.js'
+import { withRetry, DEFAULT_RETRY_CONFIG } from '../adapters/retry-policy.js'
 
 export interface StreamCallbacks {
   onChunk: (text: string) => void
   onDone: (usage?: { inputTokens: number; outputTokens: number }) => void
   onError: (code: string, message: string) => void
+  onRetry?: (attempt: number, delayMs: number) => void
 }
 
 export async function streamChatCompletion(
@@ -31,60 +33,78 @@ export async function streamChatCompletion(
     headers['Authorization'] = `Bearer ${apiKey}`
   }
 
-  let fullText = ''
   let usage: { inputTokens: number; outputTokens: number } | undefined
 
   try {
-    const response: AxiosResponse<ReadableStream> = await axios({
-      method: 'post',
-      url,
-      data: body,
-      headers,
-      responseType: 'stream',
-      signal,
-      timeout: 60000,
-    })
-
-    const parser = createParser({
-      onEvent: (event: EventSourceMessage) => {
-        const data = event.data
-        if (data === '[DONE]') {
-          callbacks.onDone(usage)
-          return
-        }
-        try {
-          const json = JSON.parse(data)
-          const delta = json.choices?.[0]?.delta?.content
-          if (typeof delta === 'string') {
-            fullText += delta
-            callbacks.onChunk(delta)
+    await withRetry(
+      {
+        execute: async (attempt) => {
+          if (signal.aborted) {
+            throw new Error('ABORTED')
           }
-          if (json.usage) {
-            usage = {
-              inputTokens: json.usage.prompt_tokens ?? 0,
-              outputTokens: json.usage.completion_tokens ?? 0,
+          if (attempt > 0) {
+            callbacks.onRetry?.(
+              attempt,
+              Math.min(
+                DEFAULT_RETRY_CONFIG.baseDelayMs * Math.pow(2, attempt - 1),
+                DEFAULT_RETRY_CONFIG.maxDelayMs,
+              ),
+            )
+          }
+
+          const response: AxiosResponse<ReadableStream> = await axios({
+            method: 'post',
+            url,
+            data: body,
+            headers,
+            responseType: 'stream',
+            signal,
+            timeout: 60000,
+          })
+
+          const parser = createParser({
+            onEvent: (event: EventSourceMessage) => {
+              const data = event.data
+              if (data === '[DONE]') {
+                return
+              }
+              try {
+                const json = JSON.parse(data)
+                const delta = json.choices?.[0]?.delta?.content
+                if (typeof delta === 'string') {
+                  callbacks.onChunk(delta)
+                }
+                if (json.usage) {
+                  usage = {
+                    inputTokens: json.usage.prompt_tokens ?? 0,
+                    outputTokens: json.usage.completion_tokens ?? 0,
+                  }
+                }
+              } catch {
+                // ignore malformed JSON in stream
+              }
+            },
+          })
+
+          const reader = response.data.getReader()
+          const decoder = new TextDecoder()
+
+          while (true) {
+            if (signal.aborted) {
+              reader.cancel()
+              break
             }
+            const { done, value } = await reader.read()
+            if (done) break
+            parser.feed(decoder.decode(value, { stream: true }))
           }
-        } catch {
-          // ignore malformed JSON in stream
-        }
+
+          parser.feed(decoder.decode())
+        },
       },
-    })
+      DEFAULT_RETRY_CONFIG,
+    )
 
-    const reader = response.data.getReader()
-    const decoder = new TextDecoder()
-
-    while (true) {
-      if (signal.aborted) {
-        reader.cancel()
-        break
-      }
-      const { done, value } = await reader.read()
-      if (done) break
-      parser.feed(decoder.decode(value, { stream: true }))
-    }
-
-    parser.feed(decoder.decode())
     callbacks.onDone(usage)
   } catch (error) {
     if (axios.isCancel(error) || signal.aborted) {
