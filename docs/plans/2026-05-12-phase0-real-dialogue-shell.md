@@ -2952,3 +2952,1206 @@ git commit -m "feat(engine): ITool interface stub and ToolRegistry for Phase 2+"
 - `EngineRequest` 新增 `chat:retry-cancel`，在 `ipc-types.ts`、`engine.ts` 中同步更新。
 - `ConversationStore` 的 `getMessagesForAPI` 返回类型与 `client.ts` 的 `messages` 参数类型一致。
 - `RetryPolicyConfig` 的延迟算法与 free-code 的 `BASE_DELAY_MS * 2^attempt` 模式一致。
+
+---
+
+# Phase 0 UI 合规修复计划（2026-05-13）
+
+> **触发原因：** QA 审计报告 `.gstack/qa-reports/qa-report-one-2026-05-13.md` 显示 Phase 0 当前 Health Score 3.5/10，存在 7 个 P0 级视觉合规缺口。
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task.
+
+**Goal:** 关闭 Phase 0 全部 P0 视觉缺口，将 Health Score 从 3.5/10 提升至 8+/10。布局骨架（三栏结构、ChatHeader、消息气泡、控制台）100% 符合 DESIGN.md；Phase 2+ 功能性组件（ThinkingChain、PlanCard、Artifacts 生成）以空状态/静态占位符表示。
+
+**Architecture:** Renderer 层新建 SidebarLeft/SidebarRight/ChatHeader 骨架组件，修正所有已有组件（UserBubble、AIAvatar、MessageList、UnifiedConsole、DayZeroWelcome、OfflineBanner）的样式 token 以匹配 DESIGN.md；Engine 层无需改动（纯 UI 修复）；新增 sonner Toast 和 File Drop Overlay 提升 Demo 体验。
+
+**Tech Stack:** React 18, TypeScript 5.x, Tailwind CSS v3, Lucide React, sonner（新增依赖）。
+
+---
+
+## File Structure
+
+| 文件 | 变更 | 说明 |
+|---|---|---|
+| `tailwind.config.js` | 修改 | 字体栈加入 `PingFang SC` |
+| `package.json` | 修改 | 新增 `sonner` 依赖 |
+| `src/shared/constants.ts` | 修改 | 更新 `DAY_ZERO_WELCOME` 内容与 emoji pills |
+| `src/renderer/App.tsx` | 修改 | 集成 SidebarLeft/SidebarRight/ChatHeader，移除浮动主题按钮，更新免责声明文字，集成 Toaster 和 FileDropOverlay |
+| `src/renderer/components/sidebar/SidebarLeft.tsx` | 新建 | 左侧导航 Rail（68px）+ Expanded（256px）骨架，mock 数据 |
+| `src/renderer/components/sidebar/SidebarRight.tsx` | 新建 | 右侧产物面板 320px 骨架，Tab bar + 空状态 |
+| `src/renderer/components/layout/ChatHeader.tsx` | 新建 | h-14 头部，含工作区名称、在线状态、主题切换、右侧面板开关 |
+| `src/renderer/components/chat/UserBubble.tsx` | 修改 | bg-indigo-600、rounded-2xl rounded-tr-sm、shadow-sm、hover Copy 按钮 |
+| `src/renderer/components/chat/AIAvatar.tsx` | 修改 | 40x40px、渐变背景、边框、Bot 20x20 |
+| `src/renderer/components/chat/MessageList.tsx` | 修改 | max-w-2xl 内容链、user max-w-[85%]、错误消息气泡化、streaming 思考文本 |
+| `src/renderer/components/chat/ThinkingChain.tsx` | 新建 | Phase 0 占位组件，空状态 |
+| `src/renderer/components/chat/PlanCard.tsx` | 新建 | Phase 0 占位组件，空状态 |
+| `src/renderer/components/console/UnifiedConsole.tsx` | 修改 | shadow-2xl、焦点环、发送按钮样式、模式/model 占位按钮 |
+| `src/renderer/components/system/DayZeroWelcome.tsx` | 修改 | 渲染为 AI 消息气泡（带 avatar）|
+| `src/renderer/components/system/OfflineBanner.tsx` | 修改 | 重试按钮改为 text-link 样式 |
+| `src/renderer/components/system/FileDropOverlay.tsx` | 新建 | 全局拖拽遮罩层 |
+
+---
+
+### Task 1: Tailwind 字体栈修复
+
+**Files:**
+- Modify: `tailwind.config.js`
+
+**说明：** QA 报告 P1.4 指出字体栈缺少 `PingFang SC`。
+
+- [ ] **Step 1: 修改 tailwind.config.js 字体栈**
+
+将 `tailwind.config.js` 中的 `fontFamily.sans` 替换为：
+
+```js
+      fontFamily: {
+        sans: ['Geist Sans', 'PingFang SC', 'Microsoft YaHei', 'system-ui', 'sans-serif'],
+        mono: ['Geist Mono', 'ui-monospace', 'monospace'],
+      },
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add tailwind.config.js
+git commit -m "fix(ui): add PingFang SC to font stack per DESIGN.md"
+```
+
+---
+
+### Task 2: 创建 SidebarLeft 骨架
+
+**Files:**
+- Create: `src/renderer/components/sidebar/SidebarLeft.tsx`
+
+**说明：** QA 报告 P0.1 指出左侧边栏为空 placeholder div。Phase 0 先实现带 mock 数据的骨架，支持 expanded（256px）和 rail（68px）两种状态，默认 expanded。
+
+- [ ] **Step 1: 编写 SidebarLeft 组件**
+
+```tsx
+// src/renderer/components/sidebar/SidebarLeft.tsx
+import { useState } from 'react'
+import { Bot, Plus, Search, LayoutGrid, Wrench, Settings, ChevronLeft, ChevronRight } from 'lucide-react'
+
+const NAV_ITEMS = [
+  { icon: Plus, label: '新建工作区' },
+  { icon: Search, label: '全局搜索' },
+  { icon: LayoutGrid, label: '我的工作区' },
+  { icon: Wrench, label: '本地工具库' },
+]
+
+const MOCK_WORKSPACES = [
+  { id: '1', name: '默认工作区', active: true },
+  { id: '2', name: '季度报表', active: false },
+  { id: '3', name: '客户数据分析', active: false },
+]
+
+export function SidebarLeft() {
+  const [expanded, setExpanded] = useState(true)
+
+  return (
+    <div
+      className={`flex shrink-0 flex-col border-r border-slate-200 bg-white transition-all duration-300 ease-in-out dark:border-slate-700 dark:bg-slate-900 ${
+        expanded ? 'w-64' : 'w-16'
+      }`}
+    >
+      {/* Logo Header */}
+      <div className="flex h-14 items-center gap-3 border-b border-slate-200 px-4 dark:border-slate-700">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-white">
+          <Bot size={18} />
+        </div>
+        {expanded && <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">AI Agent</span>}
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="ml-auto rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+          aria-label={expanded ? '收起侧边栏' : '展开侧边栏'}
+        >
+          {expanded ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
+        </button>
+      </div>
+
+      {/* Nav Buttons */}
+      <div className="flex flex-col gap-1 p-2">
+        {NAV_ITEMS.map((item) => (
+          <button
+            key={item.label}
+            className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100 ${
+              expanded ? '' : 'justify-center'
+            }`}
+            title={item.label}
+          >
+            <item.icon size={18} />
+            {expanded && <span>{item.label}</span>}
+          </button>
+        ))}
+      </div>
+
+      {/* Workspace List */}
+      {expanded && (
+        <div className="flex flex-1 flex-col gap-1 overflow-y-auto p-2">
+          <p className="px-3 py-1 text-xs font-medium text-slate-400">最近工作区</p>
+          {MOCK_WORKSPACES.map((ws) => (
+            <button
+              key={ws.id}
+              className={`flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition ${
+                ws.active
+                  ? 'bg-indigo-50 font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300'
+                  : 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800'
+              }`}
+            >
+              <div className={`h-2 w-2 rounded-full ${ws.active ? 'bg-indigo-500' : 'bg-slate-300 dark:bg-slate-600'}`} />
+              <span className="truncate">{ws.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Settings */}
+      <div className="border-t border-slate-200 p-2 dark:border-slate-700">
+        <button
+          className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100 ${
+            expanded ? '' : 'justify-center'
+          }`}
+          title="设置"
+        >
+          <Settings size={18} />
+          {expanded && <span>设置</span>}
+        </button>
+      </div>
+    </div>
+  )
+}
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add src/renderer/components/sidebar/SidebarLeft.tsx
+git commit -m "feat(ui): SidebarLeft skeleton with expanded/rail modes and mock data"
+```
+
+---
+
+### Task 3: 创建 SidebarRight 骨架
+
+**Files:**
+- Create: `src/renderer/components/sidebar/SidebarRight.tsx`
+
+**说明：** QA 报告 P0.1 指出右侧产物面板为空 placeholder div。Phase 0 实现 Tab bar + 空状态占位。
+
+- [ ] **Step 1: 编写 SidebarRight 组件**
+
+```tsx
+// src/renderer/components/sidebar/SidebarRight.tsx
+import { useState } from 'react'
+import { Layout, FileText, FileSpreadsheet, FilePresentation } from 'lucide-react'
+
+const MOCK_FILES = [
+  { id: '1', name: '销售数据_Q1.xlsx', type: 'excel', size: '24 KB', time: '10:30' },
+  { id: '2', name: '会议纪要_0512.docx', type: 'word', size: '12 KB', time: '09:15' },
+]
+
+const FILE_ICONS: Record<string, React.ReactNode> = {
+  excel: <FileSpreadsheet size={16} className="text-emerald-500" />,
+  word: <FileText size={16} className="text-blue-500" />,
+  ppt: <FilePresentation size={16} className="text-amber-500" />,
+}
+
+type Tab = 'files' | 'preview'
+
+export function SidebarRight() {
+  const [activeTab, setActiveTab] = useState<Tab>('files')
+
+  return (
+    <div className="flex w-80 shrink-0 flex-col border-l border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+      {/* Tab Bar */}
+      <div className="flex h-14 items-center border-b border-slate-200 px-4 dark:border-slate-700">
+        <div className="flex rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800">
+          <button
+            onClick={() => setActiveTab('files')}
+            className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
+              activeTab === 'files'
+                ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100'
+                : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+            }`}
+          >
+            产物文件
+          </button>
+          <button
+            onClick={() => setActiveTab('preview')}
+            className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
+              activeTab === 'preview'
+                ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100'
+                : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+            }`}
+          >
+            在线预览
+          </button>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto">
+        {activeTab === 'files' ? (
+          <div className="flex flex-col gap-1 p-2">
+            {MOCK_FILES.map((file) => (
+              <button
+                key={file.id}
+                className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800"
+              >
+                {FILE_ICONS[file.type] || <FileText size={16} className="text-slate-400" />}
+                <div className="flex min-w-0 flex-1 flex-col">
+                  <span className="truncate text-sm text-slate-700 dark:text-slate-200">{file.name}</span>
+                  <span className="text-xs text-slate-400">
+                    {file.size} · {file.time}
+                  </span>
+                </div>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-slate-400">
+            <Layout size={40} strokeWidth={1.5} />
+            <p className="text-sm">选择左侧文件以预览</p>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add src/renderer/components/sidebar/SidebarRight.tsx
+git commit -m "feat(ui): SidebarRight skeleton with tab bar and empty preview state"
+```
+
+---
+
+### Task 4: 创建 ChatHeader
+
+**Files:**
+- Create: `src/renderer/components/layout/ChatHeader.tsx`
+- Modify: `src/renderer/App.tsx`
+
+**说明：** QA 报告 P0.2 指出缺失 ChatHeader。同时 P2.1 要求主题按钮移入 header。Phase 0 先实现静态布局。
+
+- [ ] **Step 1: 编写 ChatHeader 组件**
+
+```tsx
+// src/renderer/components/layout/ChatHeader.tsx
+import { Menu, Globe, PanelRight, Sun, Moon } from 'lucide-react'
+
+interface ChatHeaderProps {
+  workspaceName: string
+  isOnline: boolean
+  theme: 'light' | 'dark' | 'system'
+  onSetTheme: (theme: 'light' | 'dark') => void
+  isRightOpen: boolean
+  onToggleRight: () => void
+}
+
+export function ChatHeader({
+  workspaceName,
+  isOnline,
+  theme,
+  onSetTheme,
+  isRightOpen,
+  onToggleRight,
+}: ChatHeaderProps) {
+  return (
+    <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 dark:border-slate-700 dark:bg-slate-900">
+      {/* Left: Hamburger + Workspace Name */}
+      <div className="flex items-center gap-3">
+        <button
+          className="rounded-md p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+          aria-label="菜单"
+        >
+          <Menu size={18} />
+        </button>
+        <h1 className="max-w-xs truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
+          {workspaceName}
+        </h1>
+      </div>
+
+      {/* Right: Status + Theme + Panel Toggle */}
+      <div className="flex items-center gap-2">
+        {/* Online Status */}
+        <div className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 dark:border-slate-700 dark:bg-slate-800">
+          <Globe size={12} className="text-slate-400" />
+          <span className={`h-1.5 w-1.5 rounded-full ${isOnline ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+          <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
+            {isOnline ? '直连' : '离线'}
+          </span>
+        </div>
+
+        {/* Theme Toggle */}
+        <div className="flex items-center gap-0.5 rounded-lg border border-slate-200 bg-white p-0.5 dark:border-slate-700 dark:bg-slate-800">
+          <button
+            onClick={() => onSetTheme('light')}
+            className={`rounded-md p-1.5 transition ${
+              theme === 'light'
+                ? 'bg-slate-100 text-slate-900 dark:bg-slate-700 dark:text-slate-100'
+                : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+            }`}
+            aria-label="浅色模式"
+          >
+            <Sun size={14} />
+          </button>
+          <button
+            onClick={() => onSetTheme('dark')}
+            className={`rounded-md p-1.5 transition ${
+              theme === 'dark'
+                ? 'bg-slate-100 text-slate-900 dark:bg-slate-700 dark:text-slate-100'
+                : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+            }`}
+            aria-label="深色模式"
+          >
+            <Moon size={14} />
+          </button>
+        </div>
+
+        {/* Right Panel Toggle */}
+        <button
+          onClick={onToggleRight}
+          className={`rounded-md p-1.5 transition ${
+            isRightOpen
+              ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300'
+              : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300'
+          }`}
+          aria-label="切换右侧面板"
+        >
+          <PanelRight size={18} />
+        </button>
+      </div>
+    </header>
+  )
+}
+```
+
+- [ ] **Step 2: 修改 App.tsx 集成 ChatHeader 并移除浮动主题按钮**
+
+将 `src/renderer/App.tsx` 的 imports 替换为：
+
+```tsx
+import { useEffect, useState } from 'react'
+import { MessageList } from './components/chat/MessageList.js'
+import { UnifiedConsole } from './components/console/UnifiedConsole.js'
+import { OfflineBanner } from './components/system/OfflineBanner.js'
+import { DayZeroWelcome } from './components/system/DayZeroWelcome.js'
+import { SidebarLeft } from './components/sidebar/SidebarLeft.js'
+import { SidebarRight } from './components/sidebar/SidebarRight.js'
+import { ChatHeader } from './components/layout/ChatHeader.js'
+import { useEngine } from './hooks/useEngine.js'
+import { useTheme } from './hooks/useTheme.js'
+import { useResponsiveLayout } from './hooks/useResponsiveLayout.js'
+import type { EngineEvent } from '../../shared/ipc-types.js'
+```
+
+在 `App` 函数体内，移除原来绝对定位的主题切换按钮，改为：
+
+```tsx
+  const [isRightOpenManual, setIsRightOpenManual] = useState(true)
+  const effectiveRightOpen = isRightOpen && isRightOpenManual
+```
+
+将 `App` 的 return JSX 整段替换为：
+
+```tsx
+  return (
+    <div className="flex h-screen w-screen bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-50">
+      {/* Left Sidebar */}
+      {isLeftOpen && <SidebarLeft />}
+
+      {/* Middle Content */}
+      <div className="flex min-w-[500px] flex-1 flex-col">
+        <ChatHeader
+          workspaceName="默认工作区"
+          isOnline={!offline}
+          theme={theme === 'system' ? 'light' : theme}
+          onSetTheme={(t) => setTheme(t)}
+          isRightOpen={effectiveRightOpen}
+          onToggleRight={() => setIsRightOpenManual((v) => !v)}
+        />
+        <OfflineBanner offline={offline} onRetry={() => send({ id: `hc-${Date.now()}`, type: 'health:check', payload: {} })} />
+
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <div className="flex-1 overflow-y-auto p-4 scrollbar-thin">
+            {dayZero && messages.length === 0 && (
+              <DayZeroWelcome content={dayZero.content} pills={dayZero.pills} onPillClick={handlePillClick} />
+            )}
+            <MessageList messages={messages} />
+          </div>
+          <div className="border-t border-slate-200 p-4 dark:border-slate-700">
+            <UnifiedConsole onSend={handleSend} disabled={offline} />
+            <p className="mt-2 text-center text-[10px] text-slate-400 dark:text-slate-500">
+              AI 可能会犯错。处理涉及财务或敏感数据前，请核实生成内容。
+            </p>
+          </div>
+        </div>
+
+        {!isConnected && (
+          <div className="absolute bottom-16 left-1/2 z-10 -translate-x-1/2 rounded-full bg-amber-500 px-3 py-1 text-xs text-white shadow">
+            AI 引擎连接中...
+          </div>
+        )}
+      </div>
+
+      {/* Right Sidebar */}
+      {effectiveRightOpen && <SidebarRight />}
+    </div>
+  )
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/renderer/components/layout/ChatHeader.tsx src/renderer/App.tsx
+git commit -m "feat(ui): add ChatHeader with workspace title, status, theme toggle, panel switch"
+```
+
+---
+
+### Task 5: 修复 UserBubble + AIAvatar + MessageList
+
+**Files:**
+- Modify: `src/renderer/components/chat/UserBubble.tsx`
+- Modify: `src/renderer/components/chat/AIAvatar.tsx`
+- Modify: `src/renderer/components/chat/MessageList.tsx`
+- Create: `src/renderer/components/chat/ThinkingChain.tsx`
+- Create: `src/renderer/components/chat/PlanCard.tsx`
+
+**说明：** QA P0.4/P0.5/P0.6 联合修复消息层样式。
+
+- [ ] **Step 1: 修复 UserBubble**
+
+将 `src/renderer/components/chat/UserBubble.tsx` 替换为：
+
+```tsx
+// src/renderer/components/chat/UserBubble.tsx
+import { useState } from 'react'
+import { Copy, Check } from 'lucide-react'
+
+interface UserBubbleProps {
+  content: string
+}
+
+export function UserBubble({ content }: UserBubbleProps) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(content)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // ignore
+    }
+  }
+
+  return (
+    <div className="group flex justify-end">
+      <div className="relative max-w-[85%] sm:max-w-xl">
+        <div className="rounded-2xl rounded-tr-sm bg-indigo-600 px-4 py-3 text-white shadow-sm">
+          <p className="whitespace-pre-wrap text-sm leading-relaxed">{content}</p>
+        </div>
+        <button
+          onClick={handleCopy}
+          className="absolute -left-8 top-1/2 -translate-y-1/2 rounded-md p-1 opacity-0 transition hover:bg-slate-100 group-hover:opacity-100 dark:hover:bg-slate-800"
+          aria-label="复制"
+        >
+          {copied ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} className="text-slate-400" />}
+        </button>
+      </div>
+    </div>
+  )
+}
+```
+
+- [ ] **Step 2: 修复 AIAvatar**
+
+将 `src/renderer/components/chat/AIAvatar.tsx` 替换为：
+
+```tsx
+// src/renderer/components/chat/AIAvatar.tsx
+import { Bot } from 'lucide-react'
+
+export function AIAvatar() {
+  return (
+    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-indigo-200 bg-gradient-to-br from-indigo-100 to-white text-indigo-600 dark:border-indigo-500/30 dark:from-indigo-900/40 dark:to-slate-900 dark:text-indigo-300">
+      <Bot size={20} />
+    </div>
+  )
+}
+```
+
+- [ ] **Step 3: 创建 ThinkingChain 占位组件**
+
+```tsx
+// src/renderer/components/chat/ThinkingChain.tsx
+export function ThinkingChain() {
+  return null
+}
+```
+
+- [ ] **Step 4: 创建 PlanCard 占位组件**
+
+```tsx
+// src/renderer/components/chat/PlanCard.tsx
+export function PlanCard() {
+  return null
+}
+```
+
+- [ ] **Step 5: 修复 MessageList**
+
+将 `src/renderer/components/chat/MessageList.tsx` 替换为：
+
+```tsx
+// src/renderer/components/chat/MessageList.tsx
+import { AlertCircle, Loader2 } from 'lucide-react'
+import { AIAvatar } from './AIAvatar.js'
+import { UserBubble } from './UserBubble.js'
+import { MarkdownRenderer } from './MarkdownRenderer.js'
+import { ThinkingChain } from './ThinkingChain.js'
+import { PlanCard } from './PlanCard.js'
+import type { ChatMessage } from '../../App.js'
+
+interface MessageListProps {
+  messages: ChatMessage[]
+}
+
+export function MessageList({ messages }: MessageListProps) {
+  return (
+    <div className="flex flex-col gap-4">
+      {messages.map((msg) => {
+        if (msg.role === 'user') {
+          return (
+            <div key={msg.id} className="animate-fade-up">
+              <UserBubble content={msg.content} />
+            </div>
+          )
+        }
+
+        if (msg.role === 'system' && msg.error) {
+          return (
+            <div key={msg.id} className="animate-fade-up flex gap-3">
+              <AIAvatar />
+              <div className="max-w-2xl rounded-2xl rounded-tl-sm border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700 shadow-sm dark:border-rose-800 dark:bg-rose-900/20 dark:text-rose-300">
+                <div className="flex items-center gap-2">
+                  <AlertCircle size={14} />
+                  <span className="text-xs font-medium">出错了</span>
+                </div>
+                <p className="mt-1 text-sm">{msg.content}</p>
+              </div>
+            </div>
+          )
+        }
+
+        return (
+          <div key={msg.id} className="animate-fade-up flex gap-3">
+            <AIAvatar />
+            <div className="max-w-2xl">
+              <ThinkingChain />
+              <PlanCard />
+              <div className="rounded-2xl rounded-tl-sm bg-slate-100 px-4 py-3 shadow-sm dark:bg-slate-800">
+                <MarkdownRenderer content={msg.content} />
+                {msg.streaming && (
+                  <div className="mt-2 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                    <Loader2 size={12} className="animate-spin" />
+                    <span>AI 正在思考...</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+```
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/renderer/components/chat/
+git commit -m "fix(ui): align UserBubble, AIAvatar, MessageList to DESIGN.md spec"
+```
+
+---
+
+### Task 6: 修复 UnifiedConsole 外壳 + 占位控件
+
+**Files:**
+- Modify: `src/renderer/components/console/UnifiedConsole.tsx`
+
+**说明：** QA P0.3 指出控制台缺少外壳样式、焦点环、发送按钮样式，以及模式/model 等控件。Phase 0 修复外壳和按钮样式，其余控件做视觉占位（disabled）。
+
+- [ ] **Step 1: 替换 UnifiedConsole 整文件**
+
+```tsx
+// src/renderer/components/console/UnifiedConsole.tsx
+import { useState, useRef, useCallback } from 'react'
+import { Send, Paperclip, AtSign, ChevronDown, Sparkles, Lightbulb, Hammer } from 'lucide-react'
+
+type Mode = 'ask' | 'plan' | 'craft'
+
+const MODES: { id: Mode; label: string; icon: React.ElementType; color: string; desc: string }[] = [
+  { id: 'ask', label: 'Ask', icon: Sparkles, color: 'text-indigo-600 bg-indigo-50 border-indigo-200', desc: '只读对话' },
+  { id: 'plan', label: 'Plan', icon: Lightbulb, color: 'text-amber-600 bg-amber-50 border-amber-200', desc: '需审批' },
+  { id: 'craft', label: 'Craft', icon: Hammer, color: 'text-emerald-600 bg-emerald-50 border-emerald-200', desc: '自动执行' },
+]
+
+const MODELS = [
+  { id: 'minimax', label: 'Minimax 2.5' },
+  { id: 'gpt4o', label: 'GPT-4o' },
+  { id: 'claude', label: 'Claude 3.5 Sonnet' },
+]
+
+interface UnifiedConsoleProps {
+  onSend: (content: string) => void
+  disabled?: boolean
+}
+
+export function UnifiedConsole({ onSend, disabled }: UnifiedConsoleProps) {
+  const [text, setText] = useState('')
+  const [mode, setMode] = useState<Mode>('ask')
+  const [model, setModel] = useState('minimax')
+  const [showModeDropdown, setShowModeDropdown] = useState(false)
+  const [showModelDropdown, setShowModelDropdown] = useState(false)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const activeMode = MODES.find((m) => m.id === mode)!
+
+  const handleSubmit = useCallback(() => {
+    if (disabled || !text.trim()) return
+    onSend(text.trim())
+    setText('')
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto'
+    }
+  }, [text, disabled, onSend])
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSubmit()
+    }
+  }
+
+  const handleInput = (e: React.FormEvent<HTMLTextAreaElement>) => {
+    const el = e.currentTarget
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`
+  }
+
+  return (
+    <div className="mx-auto w-full max-w-3xl">
+      {/* Context Pills row — placeholder for file attachments */}
+      <div className="mb-2 flex flex-wrap gap-1.5">
+        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:border-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-300">
+          <Paperclip size={10} />
+          销售数据_Q1.xlsx
+        </span>
+      </div>
+
+      {/* Main container */}
+      <div className="relative flex items-end gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl transition focus-within:border-indigo-300 focus-within:ring-4 focus-within:ring-indigo-50 dark:border-slate-700 dark:bg-slate-800 dark:focus-within:border-indigo-500 dark:focus-within:ring-indigo-500/20">
+        {/* Left action buttons */}
+        <div className="flex shrink-0 items-center gap-1 pb-1">
+          <button
+            disabled
+            className="flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-medium text-slate-500 opacity-50 transition hover:bg-slate-50 dark:border-slate-600 dark:text-slate-400"
+            title="@引入（Phase 1 启用）"
+          >
+            <AtSign size={12} />
+            <span className="hidden sm:inline">引入</span>
+          </button>
+          <button
+            disabled
+            className="rounded-lg p-1.5 text-slate-400 opacity-50 transition hover:bg-slate-50 dark:hover:bg-slate-700"
+            title="附件（Phase 1 启用）"
+          >
+            <Paperclip size={16} />
+          </button>
+        </div>
+
+        <textarea
+          ref={textareaRef}
+          rows={1}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onInput={handleInput}
+          disabled={disabled}
+          placeholder={disabled ? '网络不可用，请检查网络后重试' : '输入消息，按 Enter 发送...'}
+          className="max-h-[200px] w-full resize-none bg-transparent px-2 py-2 text-sm outline-none placeholder:text-slate-400 disabled:opacity-50"
+        />
+
+        {/* Right send button */}
+        <button
+          onClick={handleSubmit}
+          disabled={disabled || !text.trim()}
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white transition hover:-translate-y-0.5 hover:bg-indigo-700 disabled:opacity-40 disabled:hover:translate-y-0"
+          aria-label="发送"
+        >
+          <Send size={16} />
+        </button>
+      </div>
+
+      {/* Bottom toolbar: mode + model switches */}
+      <div className="mt-2 flex items-center justify-between px-1">
+        {/* Mode switch */}
+        <div className="relative">
+          <button
+            onClick={() => setShowModeDropdown(!showModeDropdown)}
+            className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition ${activeMode.color}`}
+          >
+            <activeMode.icon size={12} />
+            {activeMode.label}
+            <span className="text-[10px] opacity-60">· {activeMode.desc}</span>
+            <ChevronDown size={10} className={`transition ${showModeDropdown ? 'rotate-180' : ''}`} />
+          </button>
+          {showModeDropdown && (
+            <div className="absolute bottom-full left-0 z-20 mb-1 w-48 rounded-xl border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-800">
+              {MODES.map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => { setMode(m.id); setShowModeDropdown(false) }}
+                  className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs transition ${
+                    mode === m.id
+                      ? 'bg-slate-100 font-medium text-slate-900 dark:bg-slate-700 dark:text-slate-100'
+                      : 'text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  <m.icon size={14} />
+                  <div className="flex flex-col">
+                    <span>{m.label}</span>
+                    <span className="text-[10px] text-slate-400">{m.desc}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Model switch */}
+        <div className="relative">
+          <button
+            onClick={() => setShowModelDropdown(!showModelDropdown)}
+            className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700"
+          >
+            {MODELS.find((m) => m.id === model)?.label}
+            <ChevronDown size={10} className={`transition ${showModelDropdown ? 'rotate-180' : ''}`} />
+          </button>
+          {showModelDropdown && (
+            <div className="absolute bottom-full right-0 z-20 mb-1 w-40 rounded-xl border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-800">
+              {MODELS.map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => { setModel(m.id); setShowModelDropdown(false) }}
+                  className={`flex w-full rounded-lg px-3 py-2 text-left text-xs transition ${
+                    model === m.id
+                      ? 'bg-slate-100 font-medium text-slate-900 dark:bg-slate-700 dark:text-slate-100'
+                      : 'text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add src/renderer/components/console/UnifiedConsole.tsx
+git commit -m "feat(ui): redesign UnifiedConsole with shadow-2xl, focus ring, mode/model placeholders"
+```
+
+---
+
+### Task 7: 修复 DayZeroWelcome + 更新常量
+
+**Files:**
+- Modify: `src/shared/constants.ts`
+- Modify: `src/renderer/components/system/DayZeroWelcome.tsx`
+
+**说明：** QA P0.7 要求 DayZeroWelcome 渲染为正常 AI 消息气泡，内容需包含拖拽提示和 emoji pills。
+
+- [ ] **Step 1: 更新 constants.ts**
+
+将 `src/shared/constants.ts` 中的 `DAY_ZERO_WELCOME` 替换为：
+
+```ts
+export const DAY_ZERO_WELCOME = {
+  content:
+    '你好！我是你的专属 AI 办公助手。你可以直接将 Excel、Word 或 PDF 拖拽到这个窗口，或者试试点击下方的快捷指令：',
+  pills: [
+    { label: '📊 帮我分析并清洗 Excel 销售数据', prompt: '帮我分析并清洗 Excel 销售数据' },
+    { label: '📝 将这份文本排版为标准公文格式', prompt: '将这份文本排版为标准公文格式' },
+    { label: '📊 根据数据生成一份汇报 PPT', prompt: '根据数据生成一份汇报 PPT' },
+  ],
+}
+```
+
+- [ ] **Step 2: 重写 DayZeroWelcome 为 AI 消息气泡**
+
+将 `src/renderer/components/system/DayZeroWelcome.tsx` 替换为：
+
+```tsx
+// src/renderer/components/system/DayZeroWelcome.tsx
+import { AIAvatar } from '../chat/AIAvatar.js'
+
+interface DayZeroWelcomeProps {
+  content: string
+  pills: Array<{ label: string; prompt: string }>
+  onPillClick: (prompt: string) => void
+}
+
+export function DayZeroWelcome({ content, pills, onPillClick }: DayZeroWelcomeProps) {
+  return (
+    <div className="animate-fade-up flex gap-3">
+      <AIAvatar />
+      <div className="max-w-2xl">
+        <div className="rounded-2xl rounded-tl-sm bg-slate-100 px-4 py-3 shadow-sm dark:bg-slate-800">
+          <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-slate-300">
+            {content}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {pills.map((pill, idx) => (
+              <button
+                key={idx}
+                onClick={() => onPillClick(pill.prompt)}
+                className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600 shadow-sm transition hover:border-indigo-300 hover:text-indigo-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-indigo-500 dark:hover:text-indigo-300"
+              >
+                {pill.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/shared/constants.ts src/renderer/components/system/DayZeroWelcome.tsx
+git commit -m "fix(ui): DayZeroWelcome as AI message bubble with DESIGN.md content and emoji pills"
+```
+
+---
+
+### Task 8: 修复 OfflineBanner 重试按钮样式
+
+**Files:**
+- Modify: `src/renderer/components/system/OfflineBanner.tsx`
+
+**说明：** QA P1.6 要求重试按钮为 text-link 样式而非 pill。
+
+- [ ] **Step 1: 替换 OfflineBanner**
+
+将 `src/renderer/components/system/OfflineBanner.tsx` 替换为：
+
+```tsx
+// src/renderer/components/system/OfflineBanner.tsx
+import { WifiOff } from 'lucide-react'
+
+interface OfflineBannerProps {
+  offline: boolean
+  onRetry: () => void
+}
+
+export function OfflineBanner({ offline, onRetry }: OfflineBannerProps) {
+  if (!offline) return null
+
+  return (
+    <div className="flex items-center justify-center gap-2 border-b border-rose-200 bg-rose-50 px-4 py-2 text-xs text-rose-700 dark:border-rose-800 dark:bg-rose-900/20 dark:text-rose-300">
+      <WifiOff size={14} />
+      <span>网络不可用，仅支持查看历史会话</span>
+      <button
+        onClick={onRetry}
+        className="ml-1 text-xs font-medium text-rose-600 underline-offset-2 hover:underline dark:text-rose-400"
+      >
+        重试
+      </button>
+    </div>
+  )
+}
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add src/renderer/components/system/OfflineBanner.tsx
+git commit -m "fix(ui): OfflineBanner retry as text-link per DESIGN.md"
+```
+
+---
+
+### Task 9: 安装 sonner + Toast 集成
+
+**Files:**
+- Modify: `package.json`
+- Modify: `src/renderer/App.tsx`
+
+**说明：** QA P1.1 建议添加 Toast 系统用于非阻塞反馈。
+
+- [ ] **Step 1: 安装 sonner**
+
+```bash
+bun add sonner
+```
+
+Expected: `package.json` dependencies 中出现 `"sonner": "^1.x.x"`，`bun.lockb` 更新。
+
+- [ ] **Step 2: 在 App.tsx 中导入并放置 Toaster**
+
+在 `src/renderer/App.tsx` 的 imports 中加入：
+
+```tsx
+import { Toaster, toast } from 'sonner'
+```
+
+在 `App` 的 return JSX 最外层 `<div>` 内部的末尾（`</div>` 之前）插入：
+
+```tsx
+      <Toaster
+        position="top-center"
+        toastOptions={{
+          style: {
+            background: 'var(--toast-bg, #fff)',
+            color: 'var(--toast-text, #1e293b)',
+          },
+        }}
+      />
+```
+
+同时，在 `useEngine` 的 `chat:error` case 中加入 toast：
+
+```tsx
+      case 'chat:error': {
+        const p = evt.payload as { code: string; message: string }
+        toast.error(p.message)
+        setMessages((prev) => [
+          ...prev,
+          { id: `err-${Date.now()}`, role: 'system', content: p.message, error: true },
+        ])
+        break
+      }
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add package.json bun.lockb src/renderer/App.tsx
+git commit -m "feat(ui): integrate sonner Toast for error and feedback notifications"
+```
+
+---
+
+### Task 10: 添加 File Drop Overlay
+
+**Files:**
+- Create: `src/renderer/components/system/FileDropOverlay.tsx`
+- Modify: `src/renderer/App.tsx`
+
+**说明：** QA P1.2 建议添加全局拖拽覆盖层，属于领导 Demo 核心卖点。
+
+- [ ] **Step 1: 创建 FileDropOverlay**
+
+```tsx
+// src/renderer/components/system/FileDropOverlay.tsx
+import { Upload, FileText } from 'lucide-react'
+
+interface FileDropOverlayProps {
+  show: boolean
+}
+
+export function FileDropOverlay({ show }: FileDropOverlayProps) {
+  if (!show) return null
+
+  return (
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-indigo-600/80 backdrop-blur-sm"
+    >
+      <div className="flex flex-col items-center gap-4 rounded-2xl bg-white p-10 shadow-2xl dark:bg-slate-900"
+      >
+        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-indigo-50 dark:bg-indigo-500/10"
+        >
+          <Upload size={32} className="text-indigo-600 dark:text-indigo-300" />
+        </div>
+        <div className="text-center"
+        >
+          <p className="text-lg font-semibold text-slate-800 dark:text-slate-100"
+          >释放以上传文件</p>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400"
+          >支持 Excel、Word、PDF、PPT、Markdown、TXT</p>
+        </div>
+        <div className="flex gap-3"
+        >
+          {['.xlsx', '.docx', '.pdf', '.pptx', '.md'].map((ext) => (
+            <div key={ext} className="flex items-center gap-1 rounded-full bg-slate-50 px-2.5 py-1 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+            >
+              <FileText size={10} />
+              {ext}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+```
+
+- [ ] **Step 2: 在 App.tsx 添加拖拽状态**
+
+在 `src/renderer/App.tsx` 的 `App` 函数体内新增状态：
+
+```tsx
+  const [isDragging, setIsDragging] = useState(false)
+```
+
+在外层 `<div>` 上添加拖拽事件：
+
+```tsx
+    <div
+      className="relative flex h-screen w-screen bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-50"
+      onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
+      onDragLeave={() => setIsDragging(false)}
+      onDrop={(e) => { e.preventDefault(); setIsDragging(false) /* Phase 3 处理文件 */ }}
+    >
+```
+
+并在 `</div>` 闭合标签之前插入：
+
+```tsx
+      <FileDropOverlay show={isDragging} />
+```
+
+同时添加 `FileDropOverlay` import：
+
+```tsx
+import { FileDropOverlay } from './components/system/FileDropOverlay.js'
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/renderer/components/system/FileDropOverlay.tsx src/renderer/App.tsx
+git commit -m "feat(ui): add global FileDropOverlay with supported extensions badge"
+```
+
+---
+
+### Task 11: 端到端验证
+
+**Files:**
+- 无新建文件
+
+- [ ] **Step 1: 启动 dev 服务验证构建**
+
+```bash
+bun run dev
+```
+
+Expected:
+1. Electron 窗口弹出，三栏布局可见（左 256px、中自适应、右 320px）。
+2. ChatHeader 显示 "默认工作区" + 绿色在线圆点 + "直连" + 主题按钮 + 面板切换按钮。
+3. 左侧 SidebarLeft 显示 Logo、4 个导航按钮、3 个 mock 工作区、底部设置按钮。
+4. 右侧 SidebarRight 显示 "产物文件" Tab + 2 个 mock 文件 + "在线预览" 空状态。
+5. 中间聊天区显示 DayZeroWelcome（带 AIAvatar 的气泡）+ emoji pills。
+6. 输入消息发送后，UserBubble 为 indigo-600、rounded-2xl rounded-tr-sm、带 hover Copy 按钮。
+7. AI 回复时显示 "AI 正在思考..." + Loader2 旋转动画。
+8. 主题切换即时生效，localStorage 持久化。
+9. 拖拽文件到窗口中央出现蓝色遮罩覆盖层。
+10. `bun run build` 零 TypeScript 错误。
+
+- [ ] **Step 2: 验证免责声明文字**
+
+检查窗口底部控制台下方显示：
+`AI 可能会犯错。处理涉及财务或敏感数据前，请核实生成内容。`
+
+- [ ] **Step 3: 验证离线横幅**
+
+断开网络或修改 baseUrl，等待 30 秒内顶部显示横幅，文字为 "网络不可用，仅支持查看历史会话"，"重试" 为纯文本链接样式。
+
+- [ ] **Step 4: 提交并打 tag**
+
+```bash
+git add -A
+git commit -m "chore: Phase 0 UI compliance complete — all P0 gaps closed"
+git tag v0.1.1-phase0-ui
+```
+
+---
+
+## Self-Review
+
+**1. Spec coverage：**
+
+| QA 报告缺口 | 对应任务 |
+|---|---|
+| P0.1 空侧边栏 | Task 2 (SidebarLeft) + Task 3 (SidebarRight) |
+| P0.2 缺失 ChatHeader | Task 4 (ChatHeader) |
+| P0.3 UnifiedConsole 样式 | Task 6 (shadow-2xl, focus ring, send button, mode/model placeholders) |
+| P0.4 UserBubble 颜色 + hover Copy | Task 5 (UserBubble.tsx) |
+| P0.5 AIAvatar 尺寸 + 渐变 | Task 5 (AIAvatar.tsx) |
+| P0.6 AI Message 结构 | Task 5 (MessageList + ThinkingChain stub + PlanCard stub) |
+| P0.7 DayZeroWelcome 内容 | Task 7 (constants.ts + DayZeroWelcome.tsx) |
+| P1.1 Toast 系统 | Task 9 (sonner + Toaster) |
+| P1.2 文件拖放覆盖层 | Task 10 (FileDropOverlay) |
+| P1.4 Tailwind 字体栈 | Task 1 (PingFang SC) |
+| P1.5 免责声明文字 | Task 4 (App.tsx 文字更新) |
+| P1.6 OfflineBanner 重试样式 | Task 8 (text-link) |
+| P2.1 主题切换位置 | Task 4 (移入 ChatHeader) |
+| P2.2 错误消息格式 | Task 5 (AlertCircle + AI bubble) |
+| P2.3 AI Message Max Width | Task 5 (max-w-2xl) |
+| P2.4 发送按钮尺寸 | Task 6 (rounded-xl bg-indigo-600) |
+
+**2. Placeholder scan:** 无 TBD/TODO。ThinkingChain 和 PlanCard 为 Phase 2 预留的合法空状态组件。mode/model 下拉为 Phase 1 真实功能预留的视觉占位。
+
+**3. Type consistency：**
+- `ChatMessage` 接口在 `App.tsx` 定义，`MessageList.tsx`、`useEngine` 回调均使用同一类型。
+- `Mode` 类型在 `UnifiedConsole.tsx` 内部定义，不影响外部接口。
+
+---
+
+## Phase 0 后续 TODO（未在本次修复中完成，已标识阶段归属）
+
+以下项目在本次 Phase 0 UI 合规修复中**有意延后**，以避免与后续阶段返工：
+
+| # | 项目 | 当前状态 | 延后至 | 原因 |
+|---|---|---|---|---|
+| 1 | **Settings Dialog** | 未实现 | Phase 1 | `docs/design.md:374` 明确模型切换配置属于 Phase 1；Phase 0 只有主题切换按钮已满足 Demo 需求 |
+| 2 | **模型切换真实功能** | 占位（UnifiedConsole 有 UI 无 API 切换逻辑） | Phase 1 | `docs/design.md:374` 明确属于 Phase 1（Day 3-7），需改造 ProviderClient 支持多实例 |
+| 3 | **Mode Switch 真实功能（Ask/Plan/Craft）** | 占位（有 UI 状态，无引擎逻辑） | Phase 2 | `docs/design.md:392` 明确 Plan 模式审批 UI 属于 Phase 2（Week 2），需状态机实现 |
+| 4 | **Workspace 列表真实数据** | mock 数据 | Phase 1 | 左侧工作区持久化属于 Phase 1 多轮对话与会话历史 |
+| 5 | **ThinkingChain 真实内容** | 返回 `null` 的占位组件 | Phase 2 | 需 Plan 模式输出结构化思考过程 |
+| 6 | **PlanCard 真实审批逻辑** | 返回 `null` 的占位组件 | Phase 2 | 需 Plan 模式状态机 + 用户同意/拒绝交互 |
+| 7 | **Artifacts 文件真实生成** | 右侧 mock 文件列表 | Phase 3 | 业务工具（Excel/Word/PPT 处理）属于 Phase 3 |
+| 8 | **@引入 / Paperclip 附件功能** | disabled 按钮占位 | Phase 3 | 文件解析与向量化属于 Phase 3 |
+| 9 | **FileDropOverlay 真实上传处理** | `onDrop` 仅 `preventDefault` | Phase 3 | 文件解析与 Workspace 沙箱写入属于 Phase 3 |
+| 10 | **深色模式自定义颜色 `#0B1120`** | 未添加 | Phase 1 | QA 报告 P1.4 标记为 Low；当前 `dark:bg-slate-900` 已足够 |
+
+---
+
+## Execution Handoff
+
+**Plan complete and appended to `docs/plans/2026-05-12-phase0-real-dialogue-shell.md`. Two execution options:**
+
+**1. Subagent-Driven (recommended)** — I dispatch a fresh subagent per task, review between tasks, fast iteration
+
+**2. Inline Execution** — Execute tasks in this session using executing-plans, batch execution with checkpoints
+
+**Which approach?**

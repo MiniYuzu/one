@@ -1,6 +1,6 @@
 // src/renderer/components/sidebar/SidebarRight.tsx
 import { useState } from 'react'
-import { Layout, FileText, FileSpreadsheet, FilePresentation } from 'lucide-react'
+import { Layout, FileText, FileSpreadsheet, Presentation } from 'lucide-react'
 
 const MOCK_FILES = [
   { id: '1', name: '销售数据_Q1.xlsx', type: 'excel', size: '24 KB', time: '10:30' },
@@ -10,7 +10,7 @@ const MOCK_FILES = [
 const FILE_ICONS: Record<string, React.ReactNode> = {
   excel: <FileSpreadsheet size={16} className="text-emerald-500" />,
   word: <FileText size={16} className="text-blue-500" />,
-  ppt: <FilePresentation size={16} className="text-amber-500" />,
+  ppt: <Presentation size={16} className="text-amber-500" />,
 }
 
 type Tab = 'files' | 'preview'
