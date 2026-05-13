@@ -1,6 +1,20 @@
 // src/renderer/components/console/UnifiedConsole.tsx
 import { useState, useRef, useCallback } from 'react'
-import { Send } from 'lucide-react'
+import { Send, Paperclip, AtSign, ChevronDown, Sparkles, Lightbulb, Hammer } from 'lucide-react'
+
+type Mode = 'ask' | 'plan' | 'craft'
+
+const MODES: { id: Mode; label: string; icon: React.ElementType; color: string; desc: string }[] = [
+  { id: 'ask', label: 'Ask', icon: Sparkles, color: 'text-indigo-600 bg-indigo-50 border-indigo-200', desc: '只读对话' },
+  { id: 'plan', label: 'Plan', icon: Lightbulb, color: 'text-amber-600 bg-amber-50 border-amber-200', desc: '需审批' },
+  { id: 'craft', label: 'Craft', icon: Hammer, color: 'text-emerald-600 bg-emerald-50 border-emerald-200', desc: '自动执行' },
+]
+
+const MODELS = [
+  { id: 'minimax', label: 'Minimax 2.5' },
+  { id: 'gpt4o', label: 'GPT-4o' },
+  { id: 'claude', label: 'Claude 3.5 Sonnet' },
+]
 
 interface UnifiedConsoleProps {
   onSend: (content: string) => void
@@ -9,7 +23,13 @@ interface UnifiedConsoleProps {
 
 export function UnifiedConsole({ onSend, disabled }: UnifiedConsoleProps) {
   const [text, setText] = useState('')
+  const [mode, setMode] = useState<Mode>('ask')
+  const [model, setModel] = useState('minimax')
+  const [showModeDropdown, setShowModeDropdown] = useState(false)
+  const [showModelDropdown, setShowModelDropdown] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const activeMode = MODES.find((m) => m.id === mode)!
 
   const handleSubmit = useCallback(() => {
     if (disabled || !text.trim()) return
@@ -34,26 +54,123 @@ export function UnifiedConsole({ onSend, disabled }: UnifiedConsoleProps) {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl items-end gap-2 rounded-20 border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-      <textarea
-        ref={textareaRef}
-        rows={1}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={handleKeyDown}
-        onInput={handleInput}
-        disabled={disabled}
-        placeholder={disabled ? '网络不可用，请检查网络后重试' : '输入消息，按 Enter 发送...'}
-        className="max-h-[200px] w-full resize-none bg-transparent px-2 py-2 text-sm outline-none placeholder:text-slate-400 disabled:opacity-50"
-      />
-      <button
-        onClick={handleSubmit}
-        disabled={disabled || !text.trim()}
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-500 text-white transition hover:bg-indigo-600 disabled:opacity-40"
-        aria-label="发送"
-      >
-        <Send size={16} />
-      </button>
+    <div className="mx-auto w-full max-w-3xl">
+      {/* Context Pills row — placeholder for file attachments */}
+      <div className="mb-2 flex flex-wrap gap-1.5">
+        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:border-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-300">
+          <Paperclip size={10} />
+          销售数据_Q1.xlsx
+        </span>
+      </div>
+
+      {/* Main container */}
+      <div className="relative flex items-end gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl transition focus-within:border-indigo-300 focus-within:ring-4 focus-within:ring-indigo-50 dark:border-slate-700 dark:bg-slate-800 dark:focus-within:border-indigo-500 dark:focus-within:ring-indigo-500/20">
+        {/* Left action buttons */}
+        <div className="flex shrink-0 items-center gap-1 pb-1">
+          <button
+            disabled
+            className="flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-medium text-slate-500 opacity-50 transition hover:bg-slate-50 dark:border-slate-600 dark:text-slate-400"
+            title="@引入（Phase 1 启用）"
+          >
+            <AtSign size={12} />
+            <span className="hidden sm:inline">引入</span>
+          </button>
+          <button
+            disabled
+            className="rounded-lg p-1.5 text-slate-400 opacity-50 transition hover:bg-slate-50 dark:hover:bg-slate-700"
+            title="附件（Phase 1 启用）"
+          >
+            <Paperclip size={16} />
+          </button>
+        </div>
+
+        <textarea
+          ref={textareaRef}
+          rows={1}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onInput={handleInput}
+          disabled={disabled}
+          placeholder={disabled ? '网络不可用，请检查网络后重试' : '输入消息，按 Enter 发送...'}
+          className="max-h-[200px] w-full resize-none bg-transparent px-2 py-2 text-sm outline-none placeholder:text-slate-400 disabled:opacity-50"
+        />
+
+        {/* Right send button */}
+        <button
+          onClick={handleSubmit}
+          disabled={disabled || !text.trim()}
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white transition hover:-translate-y-0.5 hover:bg-indigo-700 disabled:opacity-40 disabled:hover:translate-y-0"
+          aria-label="发送"
+        >
+          <Send size={16} />
+        </button>
+      </div>
+
+      {/* Bottom toolbar: mode + model switches */}
+      <div className="mt-2 flex items-center justify-between px-1">
+        {/* Mode switch */}
+        <div className="relative">
+          <button
+            onClick={() => setShowModeDropdown(!showModeDropdown)}
+            className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition ${activeMode.color}`}
+          >
+            <activeMode.icon size={12} />
+            {activeMode.label}
+            <span className="text-[10px] opacity-60">· {activeMode.desc}</span>
+            <ChevronDown size={10} className={`transition ${showModeDropdown ? 'rotate-180' : ''}`} />
+          </button>
+          {showModeDropdown && (
+            <div className="absolute bottom-full left-0 z-20 mb-1 w-48 rounded-xl border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-800">
+              {MODES.map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => { setMode(m.id); setShowModeDropdown(false) }}
+                  className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs transition ${
+                    mode === m.id
+                      ? 'bg-slate-100 font-medium text-slate-900 dark:bg-slate-700 dark:text-slate-100'
+                      : 'text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  <m.icon size={14} />
+                  <div className="flex flex-col">
+                    <span>{m.label}</span>
+                    <span className="text-[10px] text-slate-400">{m.desc}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Model switch */}
+        <div className="relative">
+          <button
+            onClick={() => setShowModelDropdown(!showModelDropdown)}
+            className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700"
+          >
+            {MODELS.find((m) => m.id === model)?.label}
+            <ChevronDown size={10} className={`transition ${showModelDropdown ? 'rotate-180' : ''}`} />
+          </button>
+          {showModelDropdown && (
+            <div className="absolute bottom-full right-0 z-20 mb-1 w-40 rounded-xl border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-800">
+              {MODELS.map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => { setModel(m.id); setShowModelDropdown(false) }}
+                  className={`flex w-full rounded-lg px-3 py-2 text-left text-xs transition ${
+                    model === m.id
+                      ? 'bg-slate-100 font-medium text-slate-900 dark:bg-slate-700 dark:text-slate-100'
+                      : 'text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
