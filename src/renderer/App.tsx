@@ -71,7 +71,6 @@ export function App() {
 
   useEffect(() => {
     if (engineReady && messages.length === 0 && !dayZero) {
-      // Trigger day zero welcome injection
       send({ id: `sync-${Date.now()}`, type: 'health:check', payload: {} })
     }
   }, [engineReady, messages.length, dayZero, send])
@@ -89,35 +88,50 @@ export function App() {
   }
 
   return (
-    <div className="flex h-screen w-screen flex-col bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-50">
-      <OfflineBanner offline={offline} onRetry={() => send({ id: `hc-${Date.now()}`, type: 'health:check', payload: {} })} />
-      <div className="absolute right-4 top-4 z-10">
-        <select
-          value={theme}
-          onChange={(e) => setTheme(e.target.value as 'light' | 'dark' | 'system')}
-          className="rounded-8 border border-slate-200 bg-white px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-800"
-        >
-          <option value="light">浅色</option>
-          <option value="dark">深色</option>
-          <option value="system">跟随系统</option>
-        </select>
+    <div className="flex h-screen w-screen bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-50">
+      {/* Left Rail Placeholder — Phase 2+ 导航 */}
+      <div className="hidden w-16 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900 lg:flex" />
+
+      {/* Middle Content */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <OfflineBanner offline={offline} onRetry={() => send({ id: `hc-${Date.now()}`, type: 'health:check', payload: {} })} />
+
+        <div className="absolute right-4 top-4 z-10">
+          <select
+            value={theme}
+            onChange={(e) => setTheme(e.target.value as 'light' | 'dark' | 'system')}
+            className="rounded-8 border border-slate-200 bg-white px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-800"
+          >
+            <option value="light">浅色</option>
+            <option value="dark">深色</option>
+            <option value="system">跟随系统</option>
+          </select>
+        </div>
+
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <div className="flex-1 overflow-y-auto p-4 scrollbar-thin">
+            {dayZero && messages.length === 0 && (
+              <DayZeroWelcome content={dayZero.content} pills={dayZero.pills} onPillClick={handlePillClick} />
+            )}
+            <MessageList messages={messages} />
+          </div>
+          <div className="border-t border-slate-200 p-4 dark:border-slate-700">
+            <UnifiedConsole onSend={handleSend} disabled={offline} />
+            <p className="mt-2 text-center text-[10px] text-slate-400 dark:text-slate-500">
+              AI 生成内容仅供参考，处理敏感数据前请核实
+            </p>
+          </div>
+        </div>
+
+        {!isConnected && (
+          <div className="absolute bottom-16 left-1/2 z-10 -translate-x-1/2 rounded-full bg-amber-500 px-3 py-1 text-xs text-white shadow">
+            AI 引擎连接中...
+          </div>
+        )}
       </div>
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <div className="flex-1 overflow-y-auto p-4 scrollbar-thin">
-          {dayZero && messages.length === 0 && (
-            <DayZeroWelcome content={dayZero.content} pills={dayZero.pills} onPillClick={handlePillClick} />
-          )}
-          <MessageList messages={messages} />
-        </div>
-        <div className="border-t border-slate-200 p-4 dark:border-slate-700">
-          <UnifiedConsole onSend={handleSend} disabled={offline} />
-        </div>
-      </div>
-      {!isConnected && (
-        <div className="absolute bottom-16 left-1/2 -translate-x-1/2 rounded-full bg-amber-500 px-3 py-1 text-xs text-white shadow">
-          AI 引擎连接中...
-        </div>
-      )}
+
+      {/* Right Artifacts Panel Placeholder — Phase 2+ 产物 */}
+      <div className="hidden w-[320px] shrink-0 border-l border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900 xl:block" />
     </div>
   )
 }
