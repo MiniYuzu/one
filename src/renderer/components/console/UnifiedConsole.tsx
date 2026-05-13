@@ -1,5 +1,5 @@
 // src/renderer/components/console/UnifiedConsole.tsx
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { Send, Paperclip, AtSign, ChevronDown, Sparkles, Lightbulb, Hammer } from 'lucide-react'
 
 type Mode = 'ask' | 'plan' | 'craft'
@@ -21,6 +21,18 @@ interface UnifiedConsoleProps {
   disabled?: boolean
 }
 
+function useClickOutside(ref: React.RefObject<HTMLElement>, onOutside: () => void) {
+  useEffect(() => {
+    function handle(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        onOutside()
+      }
+    }
+    document.addEventListener('mousedown', handle)
+    return () => document.removeEventListener('mousedown', handle)
+  }, [ref, onOutside])
+}
+
 export function UnifiedConsole({ onSend, disabled }: UnifiedConsoleProps) {
   const [text, setText] = useState('')
   const [mode, setMode] = useState<Mode>('ask')
@@ -28,8 +40,13 @@ export function UnifiedConsole({ onSend, disabled }: UnifiedConsoleProps) {
   const [showModeDropdown, setShowModeDropdown] = useState(false)
   const [showModelDropdown, setShowModelDropdown] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const modeRef = useRef<HTMLDivElement>(null)
+  const modelRef = useRef<HTMLDivElement>(null)
 
   const activeMode = MODES.find((m) => m.id === mode)!
+
+  useClickOutside(modeRef, () => setShowModeDropdown(false))
+  useClickOutside(modelRef, () => setShowModelDropdown(false))
 
   const handleSubmit = useCallback(() => {
     if (disabled || !text.trim()) return
@@ -64,8 +81,8 @@ export function UnifiedConsole({ onSend, disabled }: UnifiedConsoleProps) {
           </span>
         </div>
 
-        {/* Middle: textarea + send button */}
-        <div className="flex items-end gap-2 p-3">
+        {/* Middle: textarea only */}
+        <div className="px-3 pb-1">
           <textarea
             ref={textareaRef}
             rows={1}
@@ -75,23 +92,15 @@ export function UnifiedConsole({ onSend, disabled }: UnifiedConsoleProps) {
             onInput={handleInput}
             disabled={disabled}
             placeholder={disabled ? '网络不可用，请检查网络后重试' : '描述需求，使用 @ 引用文件或对话...'}
-            className="max-h-[200px] w-full resize-none bg-transparent px-2 py-2 text-sm outline-none placeholder:text-slate-400 disabled:opacity-50"
+            className="max-h-[200px] w-full resize-none bg-transparent py-2 text-sm outline-none placeholder:text-slate-400 disabled:opacity-50"
           />
-          <button
-            onClick={handleSubmit}
-            disabled={disabled || !text.trim()}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white transition hover:-translate-y-0.5 hover:bg-indigo-700 disabled:opacity-40 disabled:hover:translate-y-0"
-            aria-label="发送"
-          >
-            <Send size={16} />
-          </button>
         </div>
 
-        {/* Bottom toolbar: mode + model + actions */}
+        {/* Bottom toolbar: mode + model + actions + send */}
         <div className="flex items-center justify-between border-t border-slate-100 px-3 py-2 dark:border-slate-700">
           <div className="flex items-center gap-2">
             {/* Mode switch */}
-            <div className="relative">
+            <div className="relative" ref={modeRef}>
               <button
                 onClick={() => setShowModeDropdown(!showModeDropdown)}
                 className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition ${activeMode.color}`}
@@ -125,7 +134,7 @@ export function UnifiedConsole({ onSend, disabled }: UnifiedConsoleProps) {
             </div>
 
             {/* Model switch */}
-            <div className="relative">
+            <div className="relative" ref={modelRef}>
               <button
                 onClick={() => setShowModelDropdown(!showModelDropdown)}
                 className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700"
@@ -174,6 +183,16 @@ export function UnifiedConsole({ onSend, disabled }: UnifiedConsoleProps) {
               <Paperclip size={16} />
             </button>
           </div>
+
+          {/* Send button — aligned with bottom toolbar */}
+          <button
+            onClick={handleSubmit}
+            disabled={disabled || !text.trim()}
+            className="flex h-8 w-8 items-center justify-center rounded-md bg-indigo-600 text-white transition hover:bg-indigo-700 disabled:opacity-40"
+            aria-label="发送"
+          >
+            <Send size={16} />
+          </button>
         </div>
       </div>
     </div>
