@@ -23,3 +23,11 @@
     scrollbar-color: #475569 transparent;
   }
 }
+
+/* macOS traffic-light drag area */
+.titlebar-drag {
+  -webkit-app-region: drag;
+}
+.titlebar-nodrag {
+  -webkit-app-region: no-drag;
+}

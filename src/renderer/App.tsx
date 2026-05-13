@@ -101,7 +101,7 @@ export function App() {
 
   return (
     <div
-      className="relative flex h-screen w-screen bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-50"
+      className="relative flex h-screen w-screen bg-slate-50 pt-7 text-slate-900 dark:bg-slate-900 dark:text-slate-50"
       onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
       onDragLeave={() => setIsDragging(false)}
       onDrop={(e) => { e.preventDefault(); setIsDragging(false) /* Phase 3 处理文件 */ }}
