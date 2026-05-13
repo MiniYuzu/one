@@ -12,6 +12,21 @@ let isOffline = false
 let healthCheckTimer: NodeJS.Timeout | null = null
 let apiKey: string | null = null
 let assistantBuffer = ''
+
+const MODEL_REGISTRY: Record<string, { baseUrl: string; apiKey: string }> = {
+  'MiniMax-M2.5': {
+    baseUrl: 'https://api.minimaxi.com/',
+    apiKey: 'sk-api-RFxMBSPRgkRx_05c7eim3MiWKVJvmC_jQXij4y6yy0BwTg9FUMrfSrrXs7yCBmWedzFPkCbBeOr-VLCczPsfA9AXGCWZ4civZaLxCVfTfrG_py5skOqBEiY',
+  },
+  'gpt-4o': {
+    baseUrl: 'https://api.openai.com',
+    apiKey: '',
+  },
+  'claude-3.5-sonnet': {
+    baseUrl: 'https://api.anthropic.com',
+    apiKey: '',
+  },
+}
 let isProcessing = false
 
 function sendEvent(evt: EngineEvent): void {
@@ -80,22 +95,30 @@ async function handleChatSend(payload: ChatSendPayload): Promise<void> {
     }
 
     const config = getConfig()
+    const modelEntry = payload.model ? MODEL_REGISTRY[payload.model] : null
+    const effectiveConfig = modelEntry
+      ? { ...config, baseUrl: modelEntry.baseUrl, model: payload.model! }
+      : payload.model
+        ? { ...config, model: payload.model }
+        : config
+    const effectiveApiKey = modelEntry?.apiKey || apiKey
+
     conversationStore.addUserMessage(sessionId, payload.content)
 
     const messageId = generateId()
-    await executeStream(sessionId, messageId, config)
+    await executeStream(sessionId, messageId, effectiveConfig, effectiveApiKey)
   } finally {
     isProcessing = false
   }
 }
 
-async function executeStream(sessionId: string, messageId: string, config: AppConfig): Promise<void> {
+async function executeStream(sessionId: string, messageId: string, config: AppConfig, effectiveApiKey: string | null): Promise<void> {
   currentAbortController = new AbortController()
   assistantBuffer = ''
 
   await streamChatCompletion(
     config,
-    apiKey,
+    effectiveApiKey,
     conversationStore.getMessagesForAPI(sessionId),
     {
       onChunk: (text) => {
@@ -160,8 +183,13 @@ async function handleRequest(req: EngineRequest): Promise<void> {
           break
         }
         const config = getConfig()
+        const modelEntry = MODEL_REGISTRY[config.model]
+        const effectiveConfig = modelEntry
+          ? { ...config, baseUrl: modelEntry.baseUrl }
+          : config
+        const effectiveApiKey = modelEntry?.apiKey || apiKey
         const messageId = generateId()
-        await executeStream(sessionId, messageId, config)
+        await executeStream(sessionId, messageId, effectiveConfig, effectiveApiKey)
       } finally {
         isProcessing = false
       }

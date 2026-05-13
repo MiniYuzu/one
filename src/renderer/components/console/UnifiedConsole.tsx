@@ -11,13 +11,13 @@ const MODES: { id: Mode; label: string; icon: React.ElementType; color: string; 
 ]
 
 const MODELS = [
-  { id: 'minimax', label: 'Minimax 2.5' },
-  { id: 'gpt4o', label: 'GPT-4o' },
-  { id: 'claude', label: 'Claude 3.5 Sonnet' },
+  { id: 'MiniMax-M2.5', label: 'M2.5' },
+  { id: 'gpt-4o', label: 'GPT-4o' },
+  { id: 'claude-3.5-sonnet', label: 'Claude 3.5 Sonnet' },
 ]
 
 interface UnifiedConsoleProps {
-  onSend: (content: string) => void
+  onSend: (content: string, model?: string) => void
   disabled?: boolean
 }
 
@@ -36,7 +36,7 @@ function useClickOutside(ref: React.RefObject<HTMLElement>, onOutside: () => voi
 export function UnifiedConsole({ onSend, disabled }: UnifiedConsoleProps) {
   const [text, setText] = useState('')
   const [mode, setMode] = useState<Mode>('ask')
-  const [model, setModel] = useState('minimax')
+  const [model, setModel] = useState('MiniMax-M2.5')
   const [showModeDropdown, setShowModeDropdown] = useState(false)
   const [showModelDropdown, setShowModelDropdown] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -50,12 +50,12 @@ export function UnifiedConsole({ onSend, disabled }: UnifiedConsoleProps) {
 
   const handleSubmit = useCallback(() => {
     if (disabled || !text.trim()) return
-    onSend(text.trim())
+    onSend(text.trim(), model)
     setText('')
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
     }
-  }, [text, disabled, onSend])
+  }, [text, disabled, onSend, model])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {

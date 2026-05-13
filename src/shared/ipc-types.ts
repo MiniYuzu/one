@@ -70,6 +70,7 @@ export interface MainAPI {
   minimizeWindow: () => void
   maximizeWindow: () => void
   closeWindow: () => void
+  copyText: (text: string) => void
 }
 
 // Renderer <-> Engine (MessagePort via preload)

@@ -9,6 +9,7 @@ const mainAPI: MainAPI = {
   minimizeWindow: () => ipcRenderer.send('main:minimizeWindow'),
   maximizeWindow: () => ipcRenderer.send('main:maximizeWindow'),
   closeWindow: () => ipcRenderer.send('main:closeWindow'),
+  copyText: (text) => ipcRenderer.send('main:copyText', text),
 }
 
 let enginePort: MessagePort | null = null

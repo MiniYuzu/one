@@ -1,5 +1,5 @@
 // src/main/ipc-router.ts
-import { ipcMain, utilityProcess, MessageChannelMain, safeStorage, app } from 'electron'
+import { ipcMain, utilityProcess, MessageChannelMain, safeStorage, app, clipboard } from 'electron'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { BrowserWindow } from 'electron'
@@ -33,6 +33,10 @@ export function setupIpcRouter(mainWindow: BrowserWindow): void {
     store.set(service, encrypted.toString('base64'))
   })
 
+  ipcMain.on('main:copyText', (_, text: string) => {
+    clipboard.writeText(text)
+  })
+
   ipcMain.on('main:minimizeWindow', () => mainWindow.minimize())
   ipcMain.on('main:maximizeWindow', () => {
     if (mainWindow.isMaximized()) {
@@ -55,6 +59,14 @@ export function spawnEngine(mainWindow: BrowserWindow): Electron.UtilityProcess 
     },
   })
 
+  // Forward engine stdout/stderr to main process console
+  engineProcess.stdout?.on('data', (data) => {
+    process.stdout.write(`[Engine] ${data}`)
+  })
+  engineProcess.stderr?.on('data', (data) => {
+    process.stderr.write(`[Engine] ${data}`)
+  })
+
   const { port1, port2 } = new MessageChannelMain()
   enginePort = port1
 
@@ -69,9 +81,27 @@ export function spawnEngine(mainWindow: BrowserWindow): Electron.UtilityProcess 
   })
   port1.start()
 
-  // Forward engine messages to renderer
-  engineProcess.on('message', (msg) => {
+  // Forward engine messages to renderer + sync apiKey on ready
+  engineProcess.on('message', async (msg: unknown) => {
     port1.postMessage(msg)
+    const typed = msg as { type?: string }
+    if (typed.type === 'engine:ready') {
+      try {
+        const { default: Store } = await import('electron-store')
+        const store = new Store({ name: 'secrets' })
+        const encryptedBase64 = store.get('llm', '') as string
+        if (encryptedBase64) {
+          const decrypted = safeStorage.decryptString(Buffer.from(encryptedBase64, 'base64'))
+          engineProcess?.postMessage({
+            id: randomUUID(),
+            type: 'config:update',
+            payload: { apiKey: decrypted },
+          })
+        }
+      } catch {
+        // ignore missing key or decryption failure
+      }
+    }
   })
 
   engineProcess.on('exit', (code) => {

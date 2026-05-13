@@ -1,6 +1,7 @@
 // src/engine/api/client.ts
-import axios, { type AxiosResponse } from 'axios'
+import axios from 'axios'
 import { createParser, type EventSourceMessage } from 'eventsource-parser'
+import { Readable } from 'node:stream'
 import type { AppConfig } from '../../shared/ipc-types.js'
 import { withRetry, DEFAULT_RETRY_CONFIG } from '../adapters/retry-policy.js'
 
@@ -52,7 +53,7 @@ export async function streamChatCompletion(
             )
           }
 
-          const response: AxiosResponse<ReadableStream> = await axios({
+          const response = await axios({
             method: 'post',
             url,
             data: body,
@@ -86,7 +87,8 @@ export async function streamChatCompletion(
             },
           })
 
-          const reader = response.data.getReader()
+          const webStream = Readable.toWeb(response.data) as unknown as ReadableStream<Uint8Array>
+          const reader = webStream.getReader()
           const decoder = new TextDecoder()
 
           while (true) {
@@ -128,6 +130,32 @@ export async function streamChatCompletion(
         else if (status === 401 || status === 403) code = 'AUTH_ERROR'
         else if (status === 429) code = 'RATE_LIMIT'
         else if (status >= 400) code = 'CLIENT_ERROR'
+        let responseData = ''
+        const rawData = error.response.data
+        if (rawData && typeof rawData.pipe === 'function') {
+          try {
+            const chunks: Buffer[] = []
+            for await (const chunk of rawData) {
+              chunks.push(chunk)
+            }
+            responseData = Buffer.concat(chunks).toString('utf-8')
+          } catch {
+            responseData = '[failed to read error stream]'
+          }
+        } else if (typeof rawData === 'string') {
+          responseData = rawData
+        } else if (Buffer.isBuffer(rawData)) {
+          responseData = rawData.toString('utf-8')
+        } else {
+          try {
+            responseData = JSON.stringify(rawData)
+          } catch {
+            responseData = '[circular or stream object]'
+          }
+        }
+        msg = `[${status}] ${msg} | URL: ${url} | Response: ${responseData.slice(0, 500)}`
+      } else {
+        msg = `${msg} | URL: ${url}`
       }
     }
     callbacks.onError(code, msg)

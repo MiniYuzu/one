@@ -6,6 +6,8 @@ interface ChatHeaderProps {
   isOnline: boolean
   theme: 'light' | 'dark' | 'system'
   onSetTheme: (theme: 'light' | 'dark') => void
+  isLeftOpen: boolean
+  onToggleLeft: () => void
   isRightOpen: boolean
   onToggleRight: () => void
 }
@@ -15,6 +17,8 @@ export function ChatHeader({
   isOnline,
   theme,
   onSetTheme,
+  isLeftOpen,
+  onToggleLeft,
   isRightOpen,
   onToggleRight,
 }: ChatHeaderProps) {
@@ -23,7 +27,12 @@ export function ChatHeader({
       {/* Left: Hamburger + Workspace Name */}
       <div className="flex items-center gap-3">
         <button
-          className="rounded-md p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+          onClick={onToggleLeft}
+          className={`rounded-md p-1.5 transition ${
+            isLeftOpen
+              ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300'
+              : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'
+          }`}
           aria-label="菜单"
         >
           <Menu size={18} />

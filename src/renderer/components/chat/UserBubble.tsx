@@ -11,7 +11,7 @@ export function UserBubble({ content }: UserBubbleProps) {
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(content)
+      window.mainAPI.copyText(content)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch {

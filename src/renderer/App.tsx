@@ -24,20 +24,24 @@ export interface ChatMessage {
 
 export function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [isWaiting, setIsWaiting] = useState(false)
   const [offline, setOffline] = useState(false)
   const [dayZero, setDayZero] = useState<{ content: string; pills: Array<{ label: string; prompt: string }> } | null>(null)
   const [engineReady, setEngineReady] = useState(false)
   const [isRightOpenManual, setIsRightOpenManual] = useState(true)
+  const [isLeftOpenManual, setIsLeftOpenManual] = useState<boolean | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const { theme, setTheme } = useTheme()
-  const { isLeftOpen, isRightOpen } = useResponsiveLayout()
+  const { isLeftOpen: isLeftOpenResponsive, isRightOpen } = useResponsiveLayout()
 
+  const effectiveLeftOpen = isLeftOpenManual !== null ? isLeftOpenManual : isLeftOpenResponsive
   const effectiveRightOpen = isRightOpen && isRightOpenManual
 
   const { send, isConnected } = useEngine((evt: EngineEvent) => {
     switch (evt.type) {
       case 'chat:chunk': {
         const p = evt.payload as { text: string; messageId: string }
+        setIsWaiting(false)
         setMessages((prev) => {
           const last = prev[prev.length - 1]
           if (last && last.role === 'assistant' && last.id === p.messageId && last.streaming) {
@@ -51,6 +55,7 @@ export function App() {
       }
       case 'chat:end': {
         const p = evt.payload as { messageId: string }
+        setIsWaiting(false)
         setMessages((prev) =>
           prev.map((m) => (m.id === p.messageId ? { ...m, streaming: false } : m)),
         )
@@ -58,6 +63,7 @@ export function App() {
       }
       case 'chat:error': {
         const p = evt.payload as { code: string; message: string }
+        setIsWaiting(false)
         toast.error(p.message)
         setMessages((prev) => [
           ...prev,
@@ -87,11 +93,12 @@ export function App() {
     }
   }, [engineReady, messages.length, dayZero, send])
 
-  const handleSend = (content: string) => {
+  const handleSend = (content: string, model?: string) => {
     if (!content.trim()) return
     const id = `user-${Date.now()}`
     setMessages((prev) => [...prev, { id, role: 'user', content: content.trim() }])
-    send({ id: `req-${Date.now()}`, type: 'chat:send', payload: { content: content.trim() } })
+    setIsWaiting(true)
+    send({ id: `req-${Date.now()}`, type: 'chat:send', payload: { content: content.trim(), model } })
   }
 
   const handlePillClick = (prompt: string) => {
@@ -107,7 +114,7 @@ export function App() {
       onDrop={(e) => { e.preventDefault(); setIsDragging(false) /* Phase 3 处理文件 */ }}
     >
       {/* Left Sidebar */}
-      {isLeftOpen && <SidebarLeft />}
+      {effectiveLeftOpen && <SidebarLeft />}
 
       {/* Middle Content */}
       <div className="flex min-w-[500px] flex-1 flex-col">
@@ -116,6 +123,8 @@ export function App() {
           isOnline={!offline}
           theme={theme === 'system' ? 'light' : theme}
           onSetTheme={(t) => setTheme(t)}
+          isLeftOpen={effectiveLeftOpen}
+          onToggleLeft={() => setIsLeftOpenManual((v) => (v === null ? !isLeftOpenResponsive : !v))}
           isRightOpen={effectiveRightOpen}
           onToggleRight={() => setIsRightOpenManual((v) => !v)}
         />
@@ -126,7 +135,7 @@ export function App() {
             {dayZero && messages.length === 0 && (
               <DayZeroWelcome content={dayZero.content} pills={dayZero.pills} onPillClick={handlePillClick} />
             )}
-            <MessageList messages={messages} />
+            <MessageList messages={messages} isWaiting={isWaiting} />
           </div>
           <div className="border-t border-slate-200 p-4 dark:border-slate-700">
             <UnifiedConsole onSend={handleSend} disabled={offline} />
