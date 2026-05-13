@@ -111,7 +111,25 @@ export async function streamChatCompletion(
       callbacks.onDone(usage)
       return
     }
-    const msg = error instanceof Error ? error.message : String(error)
-    callbacks.onError('STREAM_ERROR', msg)
+    let code = 'STREAM_ERROR'
+    let msg = error instanceof Error ? error.message : String(error)
+    if (axios.isAxiosError(error)) {
+      if (
+        error.code === 'ECONNREFUSED' ||
+        error.code === 'ETIMEDOUT' ||
+        error.code === 'ENOTFOUND' ||
+        error.code === 'ECONNRESET' ||
+        error.code === 'EAI_AGAIN'
+      ) {
+        code = 'NETWORK_ERROR'
+      } else if (error.response) {
+        const status = error.response.status
+        if (status >= 500) code = 'SERVER_ERROR'
+        else if (status === 401 || status === 403) code = 'AUTH_ERROR'
+        else if (status === 429) code = 'RATE_LIMIT'
+        else if (status >= 400) code = 'CLIENT_ERROR'
+      }
+    }
+    callbacks.onError(code, msg)
   }
 }

@@ -6,6 +6,19 @@ import { DEFAULT_CONFIG } from '../../shared/constants.js'
 
 const configPath = process.env.ONE_CONFIG_PATH || path.join(process.cwd(), 'config.json')
 
+function writeFileAtomic(filePath: string, data: string): void {
+  const dir = path.dirname(filePath)
+  const tmpName = `.tmp-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
+  const tmpPath = path.join(dir, tmpName)
+  try {
+    fs.writeFileSync(tmpPath, data, 'utf-8')
+    fs.renameSync(tmpPath, filePath)
+  } catch (err) {
+    try { fs.unlinkSync(tmpPath) } catch {}
+    throw err
+  }
+}
+
 export function getConfig(): AppConfig {
   try {
     const raw = fs.readFileSync(configPath, 'utf-8')
@@ -21,7 +34,7 @@ export function setConfig(partial: Partial<AppConfig>): AppConfig {
   const next = { ...current, ...partial }
   try {
     fs.mkdirSync(path.dirname(configPath), { recursive: true })
-    fs.writeFileSync(configPath, JSON.stringify(next, null, 2))
+    writeFileAtomic(configPath, JSON.stringify(next, null, 2))
   } catch (err) {
     console.error('Failed to write config:', err)
   }

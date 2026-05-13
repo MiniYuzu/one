@@ -12,6 +12,7 @@ let isOffline = false
 let healthCheckTimer: NodeJS.Timeout | null = null
 let apiKey: string | null = null
 let assistantBuffer = ''
+let isProcessing = false
 
 function sendEvent(evt: EngineEvent): void {
   process.parentPort?.postMessage(evt)
@@ -58,21 +59,34 @@ function injectDayZeroWelcome(sessionId: string): void {
 }
 
 async function handleChatSend(payload: ChatSendPayload): Promise<void> {
-  const sessionId = 'default'
-  if (isOffline) {
+  if (isProcessing) {
     sendEvent({
       id: generateId(),
       type: 'chat:error',
-      payload: { code: 'OFFLINE', message: '网络不可用，请检查网络连接后重试' },
+      payload: { code: 'BUSY', message: '正在处理中，请稍后再试' },
     })
     return
   }
+  isProcessing = true
+  try {
+    const sessionId = 'default'
+    if (isOffline) {
+      sendEvent({
+        id: generateId(),
+        type: 'chat:error',
+        payload: { code: 'OFFLINE', message: '网络不可用，请检查网络连接后重试' },
+      })
+      return
+    }
 
-  const config = getConfig()
-  conversationStore.addUserMessage(sessionId, payload.content)
+    const config = getConfig()
+    conversationStore.addUserMessage(sessionId, payload.content)
 
-  const messageId = generateId()
-  await executeStream(sessionId, messageId, config)
+    const messageId = generateId()
+    await executeStream(sessionId, messageId, config)
+  } finally {
+    isProcessing = false
+  }
 }
 
 async function executeStream(sessionId: string, messageId: string, config: AppConfig): Promise<void> {
@@ -117,27 +131,40 @@ async function handleRequest(req: EngineRequest): Promise<void> {
       await handleChatSend(req.payload as ChatSendPayload)
       break
     case 'chat:retry': {
-      const sessionId = 'default'
-      const lastMsg = conversationStore.getLastUserMessage(sessionId)
-      if (!lastMsg) {
+      if (isProcessing) {
         sendEvent({
           id: generateId(),
           type: 'chat:error',
-          payload: { code: 'NO_MESSAGE', message: '没有可重试的消息' },
+          payload: { code: 'BUSY', message: '正在处理中，请稍后再试' },
         })
         break
       }
-      if (isOffline) {
-        sendEvent({
-          id: generateId(),
-          type: 'chat:error',
-          payload: { code: 'OFFLINE', message: '网络不可用，请检查网络连接后重试' },
-        })
-        break
+      isProcessing = true
+      try {
+        const sessionId = 'default'
+        const lastMsg = conversationStore.getLastUserMessage(sessionId)
+        if (!lastMsg) {
+          sendEvent({
+            id: generateId(),
+            type: 'chat:error',
+            payload: { code: 'NO_MESSAGE', message: '没有可重试的消息' },
+          })
+          break
+        }
+        if (isOffline) {
+          sendEvent({
+            id: generateId(),
+            type: 'chat:error',
+            payload: { code: 'OFFLINE', message: '网络不可用，请检查网络连接后重试' },
+          })
+          break
+        }
+        const config = getConfig()
+        const messageId = generateId()
+        await executeStream(sessionId, messageId, config)
+      } finally {
+        isProcessing = false
       }
-      const config = getConfig()
-      const messageId = generateId()
-      await executeStream(sessionId, messageId, config)
       break
     }
     case 'chat:cancel':
