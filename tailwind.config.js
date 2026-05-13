@@ -37,7 +37,7 @@ export default {
         },
       },
       fontFamily: {
-        sans: ['Geist Sans', 'Microsoft YaHei', 'system-ui', 'sans-serif'],
+        sans: ['Geist Sans', 'PingFang SC', 'Microsoft YaHei', 'system-ui', 'sans-serif'],
         mono: ['Geist Mono', 'ui-monospace', 'monospace'],
       },
       borderRadius: {
