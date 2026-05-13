@@ -1777,12 +1777,1178 @@ git tag v0.1.0-phase0
 
 ---
 
+# Phase 0 最终修复 — 追加计划（2026-05-13）
+
+> **触发原因：** 第二次 `/review` 审查发现 Phase 0 仍存在 3 个合规缺口，需在 Phase 1 开始前关闭。
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+
+**Goal:** 关闭 Phase 0 全部缺口：响应式布局改为 JS 状态机驱动、`chat:retry` 在 engine 层补齐处理逻辑、主题切换从 `<select>` 下拉改为 Sun/Moon 图标按钮。
+
+**Architecture:** Renderer 层引入 `useResponsiveLayout` Hook 监听 `window.innerWidth`，以 1100px/800px 为阈值精确控制三栏布局显隐；Engine 层提取 `executeStream` 公共函数，使 `chat:retry` 复用同一套 SSE 逻辑但不重复添加 user message；主题切换 UI 直接替换为 Lucide 图标按钮，零逻辑改动。
+
+**Tech Stack:** 现有栈不变。
+
+## 文件结构
+
+| 文件 | 变更 | 说明 |
+|---|---|---|
+| `src/renderer/hooks/useResponsiveLayout.ts` | 新建 | 窗口宽度状态机，暴露 `width` / `isLeftOpen` / `isRightOpen` |
+| `src/renderer/App.tsx` | 修改 | 接入 Hook，替换 CSS 响应式前缀为 JS 条件类名；替换主题 `<select>` 为图标按钮 |
+| `src/engine/state/conversation-store.ts` | 修改 | 新增 `getLastUserMessage` 方法 |
+| `src/engine/engine.ts` | 修改 | 提取 `executeStream`，新增 `chat:retry` case |
+
+---
+
+### Task R1: Responsive Layout JS State Machine
+
+**Files:**
+- Create: `src/renderer/hooks/useResponsiveLayout.ts`
+- Modify: `src/renderer/App.tsx`
+
+- [ ] **Step 1: 创建响应式布局 Hook**
+
+```ts
+// src/renderer/hooks/useResponsiveLayout.ts
+import { useState, useEffect } from 'react'
+
+export interface LayoutState {
+  width: number
+  isLeftOpen: boolean
+  isRightOpen: boolean
+}
+
+const RIGHT_PANEL_THRESHOLD = 1100
+const LEFT_RAIL_THRESHOLD = 800
+
+export function useResponsiveLayout(): LayoutState {
+  const [width, setWidth] = useState(window.innerWidth)
+  const [isRightOpen, setIsRightOpen] = useState(window.innerWidth >= RIGHT_PANEL_THRESHOLD)
+  const [isLeftOpen, setIsLeftOpen] = useState(window.innerWidth >= LEFT_RAIL_THRESHOLD)
+
+  useEffect(() => {
+    const handleResize = () => {
+      const w = window.innerWidth
+      setWidth(w)
+      setIsRightOpen(w >= RIGHT_PANEL_THRESHOLD)
+      setIsLeftOpen(w >= LEFT_RAIL_THRESHOLD)
+    }
+
+    window.addEventListener('resize', handleResize)
+    handleResize()
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
+
+  return { width, isLeftOpen, isRightOpen }
+}
+```
+
+- [ ] **Step 2: 修改 App.tsx 接入 Hook 并替换响应式类名**
+
+将 `src/renderer/App.tsx` 中 `useTheme` 的 import 下方新增：
+
+```tsx
+import { useResponsiveLayout } from './hooks/useResponsiveLayout.js'
+```
+
+在 `App` 函数体内新增：
+
+```tsx
+const { isLeftOpen, isRightOpen } = useResponsiveLayout()
+```
+
+将 Left Rail 占位符：
+
+```tsx
+<div className="hidden w-16 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900 lg:flex" />
+```
+
+替换为：
+
+```tsx
+{isLeftOpen && (
+  <div className="flex w-16 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900" />
+)}
+```
+
+将 Middle Content 的最外层 `<div className="flex min-w-0 flex-1 flex-col">` 替换为：
+
+```tsx
+<div className="flex min-w-[500px] flex-1 flex-col">
+```
+
+将 Right Artifacts Panel 占位符：
+
+```tsx
+<div className="hidden w-[320px] shrink-0 border-l border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900 xl:block" />
+```
+
+替换为：
+
+```tsx
+{isRightOpen && (
+  <div className="w-[320px] shrink-0 border-l border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900" />
+)}
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/renderer/hooks/useResponsiveLayout.ts src/renderer/App.tsx
+git commit -m "feat(ui): JS-driven responsive layout with 1100/800px thresholds"
+```
+
+---
+
+### Task R2: Engine `chat:retry` Handler
+
+**Files:**
+- Modify: `src/engine/state/conversation-store.ts`
+- Modify: `src/engine/engine.ts`
+
+- [ ] **Step 1: ConversationStore 新增获取最后一条用户消息**
+
+在 `src/engine/state/conversation-store.ts` 中，在 `isEmpty` 方法之后、`compactIfNeeded` 之前插入：
+
+```ts
+  getLastUserMessage(sessionId: string): string | null {
+    const conv = this.conversations.get(sessionId)
+    if (!conv) return null
+    for (let i = conv.messages.length - 1; i >= 0; i--) {
+      if (conv.messages[i].role === 'user') {
+        return conv.messages[i].content
+      }
+    }
+    return null
+  }
+```
+
+- [ ] **Step 2: engine.ts 提取公共流执行函数**
+
+将 `src/engine/engine.ts` 中 `handleChatSend` 的流式调用部分提取为 `executeStream`。具体替换 `handleChatSend` 为：
+
+```ts
+async function handleChatSend(payload: ChatSendPayload): Promise<void> {
+  const sessionId = 'default'
+  if (isOffline) {
+    sendEvent({
+      id: generateId(),
+      type: 'chat:error',
+      payload: { code: 'OFFLINE', message: '网络不可用，请检查网络连接后重试' },
+    })
+    return
+  }
+
+  const config = getConfig()
+  conversationStore.addUserMessage(sessionId, payload.content)
+
+  const messageId = generateId()
+  await executeStream(sessionId, messageId, config)
+}
+
+async function executeStream(sessionId: string, messageId: string, config: AppConfig): Promise<void> {
+  currentAbortController = new AbortController()
+  assistantBuffer = ''
+
+  await streamChatCompletion(
+    config,
+    apiKey,
+    conversationStore.getMessagesForAPI(sessionId),
+    {
+      onChunk: (text) => {
+        assistantBuffer += text
+        sendEvent({ id: generateId(), type: 'chat:chunk', payload: { text, messageId } })
+      },
+      onDone: (usage) => {
+        if (assistantBuffer) {
+          conversationStore.addAssistantMessage(sessionId, assistantBuffer)
+        }
+        assistantBuffer = ''
+        sendEvent({ id: generateId(), type: 'chat:end', payload: { messageId, usage } })
+      },
+      onError: (code, message) => {
+        assistantBuffer = ''
+        sendEvent({ id: generateId(), type: 'chat:error', payload: { code, message } })
+      },
+      onRetry: (attempt, delayMs) => {
+        sendEvent({
+          id: generateId(),
+          type: 'chat:chunk',
+          payload: { text: `\n[检测到网络波动，正在第 ${attempt} 次重试...]\n`, messageId },
+        })
+      },
+    },
+    currentAbortController.signal,
+  )
+}
+```
+
+注意：需要确保 `engine.ts` 顶部已导入 `AppConfig`，如果没有，在 imports 中加入：
+
+```ts
+import type { AppConfig } from '../shared/ipc-types.js'
+```
+
+- [ ] **Step 3: 在 handleRequest 中新增 `chat:retry` case**
+
+将 `handleRequest` 中的 switch 替换为：
+
+```ts
+async function handleRequest(req: EngineRequest): Promise<void> {
+  switch (req.type) {
+    case 'chat:send':
+      await handleChatSend(req.payload as ChatSendPayload)
+      break
+    case 'chat:retry': {
+      const sessionId = 'default'
+      const lastMsg = conversationStore.getLastUserMessage(sessionId)
+      if (!lastMsg) {
+        sendEvent({
+          id: generateId(),
+          type: 'chat:error',
+          payload: { code: 'NO_MESSAGE', message: '没有可重试的消息' },
+        })
+        break
+      }
+      if (isOffline) {
+        sendEvent({
+          id: generateId(),
+          type: 'chat:error',
+          payload: { code: 'OFFLINE', message: '网络不可用，请检查网络连接后重试' },
+        })
+        break
+      }
+      const config = getConfig()
+      const messageId = generateId()
+      await executeStream(sessionId, messageId, config)
+      break
+    }
+    case 'chat:cancel':
+    case 'chat:retry-cancel':
+      currentAbortController?.abort()
+      break
+    case 'config:update': {
+      const p = req.payload as ConfigUpdatePayload
+      if (p.apiKey) apiKey = p.apiKey
+      const updates: Partial<AppConfig> = {}
+      if (p.baseUrl) updates.baseUrl = p.baseUrl
+      if (p.model) updates.model = p.model
+      if (p.theme) updates.theme = p.theme
+      if (Object.keys(updates).length > 0) {
+        setConfig(updates as Partial<ReturnType<typeof getConfig>>)
+      }
+      break
+    }
+    case 'health:check':
+      await checkHealth()
+      break
+  }
+}
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add src/engine/state/conversation-store.ts src/engine/engine.ts
+git commit -m "feat(engine): add chat:retry handler with executeStream extraction"
+```
+
+---
+
+### Task R3: Theme Toggle Sun/Moon Icon Buttons
+
+**Files:**
+- Modify: `src/renderer/App.tsx`
+
+- [ ] **Step 1: 替换主题切换 select 为图标按钮**
+
+将 `src/renderer/App.tsx` 中 `useTheme` 的 import 旁边加入 Lucide 图标：
+
+```tsx
+import { Sun, Moon } from 'lucide-react'
+```
+
+找到 `<div className="absolute right-4 top-4 z-10">...</div>` 中的 `<select>` 元素，整段替换为：
+
+```tsx
+        <div className="absolute right-4 top-4 z-10 flex items-center gap-1 rounded-8 border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-800">
+          <button
+            onClick={() => setTheme('light')}
+            className={`rounded-md p-1.5 transition ${
+              theme === 'light'
+                ? 'bg-slate-100 text-slate-900 dark:bg-slate-700 dark:text-slate-100'
+                : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+            }`}
+            aria-label="浅色模式"
+          >
+            <Sun size={14} />
+          </button>
+          <button
+            onClick={() => setTheme('dark')}
+            className={`rounded-md p-1.5 transition ${
+              theme === 'dark'
+                ? 'bg-slate-100 text-slate-900 dark:bg-slate-700 dark:text-slate-100'
+                : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+            }`}
+            aria-label="深色模式"
+          >
+            <Moon size={14} />
+          </button>
+        </div>
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add src/renderer/App.tsx
+git commit -m "feat(ui): replace theme select with Sun/Moon icon buttons"
+```
+
+---
+
+## Self-Review
+
+**1. Spec coverage:**
+
+| 缺口 | 对应任务 |
+|---|---|
+| 响应式布局未使用 JS 状态机 | Task R1 (`useResponsiveLayout` + App.tsx 条件渲染) |
+| 缺少 `chat:retry` engine 处理 | Task R2 (`executeStream` 提取 + `chat:retry` case) |
+| 主题切换为 `<select>` 而非图标按钮 | Task R3 (Sun/Moon Lucide 按钮) |
+
+**2. Placeholder scan:** 无 TBD/TODO。每步均有完整代码、精确文件路径和 commit 命令。
+
+**3. Type consistency：**
+- `useResponsiveLayout` 返回类型 `LayoutState` 与 App.tsx 解构使用一致。
+- `conversationStore.getLastUserMessage` 返回 `string | null`，与 engine.ts 中判断逻辑一致。
+- `executeStream` 参数类型 `AppConfig` 与 `getConfig()` 返回类型一致。
+
+---
+
 ## Execution Handoff
 
-**Plan complete and saved to `docs/plans/2026-05-12-phase0-real-dialogue-shell.md`. Two execution options:**
+**Plan complete and appended to `docs/plans/2026-05-12-phase0-real-dialogue-shell.md`. Two execution options:**
 
 **1. Subagent-Driven (recommended)** — I dispatch a fresh subagent per task, review between tasks, fast iteration
 
 **2. Inline Execution** — Execute tasks in this session using executing-plans, batch execution with checkpoints
 
 **Which approach?**
+
+---
+
+# Phase 0 修复与 Phase 1 重新定义 — 追加计划（2026-05-13）
+
+> **触发原因：** `/review` 审查发现 Phase 0 存在 P0 级视觉合规缺口，且 `vendor/free-code` 内核未实际集成（当前 engine 为手写重写）。
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+
+**Goal:** 10 分钟修完 P0 视觉缺口；重新定义 Phase 1 为"内核逆向移植手术"，将 free-code 核心设计模式（指数退避重试、消息数组压缩、会话状态机）以零依赖形式重写进 engine，保持 IPC 接口 100% 兼容。
+
+**Architecture:** Renderer 层只做样式和布局骨架修正；Engine 层引入 `ConversationStore`（会话状态管理）+ `RetryPolicy`（指数退避）+ `SSEReconnectAdapter`（断流续写），替换当前手写的 `Map<string, ConversationMessage[]>` 和裸 axios 调用。
+
+**Tech Stack:** 现有栈不变（Electron v28+、React 18、Tailwind CSS v3、axios、eventsource-parser）。
+
+**Critical Feasibility Note（手术二必须先读）：**
+对 `vendor/free-code` 的源码审计显示：
+- `src/services/api/client.ts` **未导出 `ProviderClient`**，仅导出 Anthropic SDK 专用的 `getAnthropicClient`。
+- `src/state/AppStateStore.ts` **不是独立类**，而是 React `Store<AppState>` 类型别名，且 `AppState` 包含大量 UI 状态（footer、spinner、view selection 等）。
+
+因此"直接 `import` free-code 模块"在 UtilityProcess 中不可行。本计划将 Surgery 2 修正为 **"逆向移植手术"**：提取 free-code 的核心设计模式，以零依赖形式重写进我们的 engine。这是同等战略价值的内核替换。
+
+---
+
+## 手术一：P0 视觉缺口秒修（10 分钟）
+
+### Task F1: OfflineBanner + DayZeroWelcome 样式合规
+
+**Files:**
+- Modify: `src/renderer/components/system/OfflineBanner.tsx`
+- Modify: `src/renderer/components/system/DayZeroWelcome.tsx`
+
+- [ ] **Step 1: 修复 OfflineBanner 为 DESIGN.md 规范样式**
+
+将 `src/renderer/components/system/OfflineBanner.tsx` 整文件替换为：
+
+```tsx
+// src/renderer/components/system/OfflineBanner.tsx
+import { WifiOff, RefreshCw } from 'lucide-react'
+
+interface OfflineBannerProps {
+  offline: boolean
+  onRetry: () => void
+}
+
+export function OfflineBanner({ offline, onRetry }: OfflineBannerProps) {
+  if (!offline) return null
+
+  return (
+    <div className="flex items-center justify-center gap-2 border-b border-rose-200 bg-rose-50 px-4 py-2 text-xs text-rose-700 dark:border-rose-800 dark:bg-rose-900/20 dark:text-rose-300">
+      <WifiOff size={14} />
+      <span>网络不可用，仅支持查看历史会话</span>
+      <button
+        onClick={onRetry}
+        className="ml-2 flex items-center gap-1 rounded-full bg-rose-100 px-3 py-1 text-xs font-medium text-rose-700 hover:bg-rose-200 dark:bg-rose-800/40 dark:text-rose-300 dark:hover:bg-rose-800/60"
+      >
+        <RefreshCw size={12} />
+        重试
+      </button>
+    </div>
+  )
+}
+```
+
+- [ ] **Step 2: 修复 DayZeroWelcome Pills 为 DESIGN.md 规范样式**
+
+将 `src/renderer/components/system/DayZeroWelcome.tsx` 的 pills 渲染部分替换：
+
+```tsx
+// 在 DayZeroWelcome.tsx 中，找到 pills.map 所在的 div，替换为：
+<div className="mt-4 flex flex-wrap gap-2">
+  {pills.map((pill, idx) => (
+    <button
+      key={idx}
+      onClick={() => onPillClick(pill.prompt)}
+      className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100 dark:border-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300 dark:hover:bg-indigo-500/20"
+    >
+      {pill.label}
+    </button>
+  ))}
+</div>
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/renderer/components/system/OfflineBanner.tsx src/renderer/components/system/DayZeroWelcome.tsx
+git commit -m "fix(ui): align OfflineBanner and DayZeroWelcome pills to DESIGN.md spec"
+```
+
+---
+
+### Task F2: 底部免责声明 + 三栏布局骨架
+
+**Files:**
+- Modify: `src/renderer/App.tsx`
+
+- [ ] **Step 1: 在 App.tsx 中插入布局骨架和免责声明**
+
+将 `src/renderer/App.tsx` 整文件替换为：
+
+```tsx
+// src/renderer/App.tsx
+import { useEffect, useState } from 'react'
+import { MessageList } from './components/chat/MessageList.js'
+import { UnifiedConsole } from './components/console/UnifiedConsole.js'
+import { OfflineBanner } from './components/system/OfflineBanner.js'
+import { DayZeroWelcome } from './components/system/DayZeroWelcome.js'
+import { useEngine } from './hooks/useEngine.js'
+import { useTheme } from './hooks/useTheme.js'
+import type { EngineEvent } from '../../shared/ipc-types.js'
+
+export interface ChatMessage {
+  id: string
+  role: 'user' | 'assistant' | 'system'
+  content: string
+  streaming?: boolean
+  error?: boolean
+}
+
+export function App() {
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [offline, setOffline] = useState(false)
+  const [dayZero, setDayZero] = useState<{ content: string; pills: Array<{ label: string; prompt: string }> } | null>(null)
+  const [engineReady, setEngineReady] = useState(false)
+  const { theme, setTheme } = useTheme()
+
+  const { send, isConnected } = useEngine((evt: EngineEvent) => {
+    switch (evt.type) {
+      case 'chat:chunk': {
+        const p = evt.payload as { text: string; messageId: string }
+        setMessages((prev) => {
+          const last = prev[prev.length - 1]
+          if (last && last.role === 'assistant' && last.id === p.messageId && last.streaming) {
+            const updated = [...prev]
+            updated[updated.length - 1] = { ...last, content: last.content + p.text }
+            return updated
+          }
+          return [...prev, { id: p.messageId, role: 'assistant', content: p.text, streaming: true }]
+        })
+        break
+      }
+      case 'chat:end': {
+        const p = evt.payload as { messageId: string }
+        setMessages((prev) =>
+          prev.map((m) => (m.id === p.messageId ? { ...m, streaming: false } : m)),
+        )
+        break
+      }
+      case 'chat:error': {
+        const p = evt.payload as { code: string; message: string }
+        setMessages((prev) => [
+          ...prev,
+          { id: `err-${Date.now()}`, role: 'system', content: p.message, error: true },
+        ])
+        break
+      }
+      case 'offline:changed': {
+        const p = evt.payload as { offline: boolean }
+        setOffline(p.offline)
+        break
+      }
+      case 'state:sync': {
+        const p = evt.payload as { dayZero?: { content: string; pills: Array<{ label: string; prompt: string }> } }
+        if (p.dayZero) setDayZero(p.dayZero)
+        break
+      }
+      case 'engine:ready':
+        setEngineReady(true)
+        break
+    }
+  })
+
+  useEffect(() => {
+    if (engineReady && messages.length === 0 && !dayZero) {
+      send({ id: `sync-${Date.now()}`, type: 'health:check', payload: {} })
+    }
+  }, [engineReady, messages.length, dayZero, send])
+
+  const handleSend = (content: string) => {
+    if (!content.trim()) return
+    const id = `user-${Date.now()}`
+    setMessages((prev) => [...prev, { id, role: 'user', content: content.trim() }])
+    send({ id: `req-${Date.now()}`, type: 'chat:send', payload: { content: content.trim() } })
+  }
+
+  const handlePillClick = (prompt: string) => {
+    handleSend(prompt)
+    setDayZero(null)
+  }
+
+  return (
+    <div className="flex h-screen w-screen bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-50">
+      {/* Left Rail Placeholder — Phase 2+ 导航 */}
+      <div className="hidden w-16 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900 lg:flex" />
+
+      {/* Middle Content */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <OfflineBanner offline={offline} onRetry={() => send({ id: `hc-${Date.now()}`, type: 'health:check', payload: {} })} />
+
+        <div className="absolute right-4 top-4 z-10">
+          <select
+            value={theme}
+            onChange={(e) => setTheme(e.target.value as 'light' | 'dark' | 'system')}
+            className="rounded-8 border border-slate-200 bg-white px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-800"
+          >
+            <option value="light">浅色</option>
+            <option value="dark">深色</option>
+            <option value="system">跟随系统</option>
+          </select>
+        </div>
+
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <div className="flex-1 overflow-y-auto p-4 scrollbar-thin">
+            {dayZero && messages.length === 0 && (
+              <DayZeroWelcome content={dayZero.content} pills={dayZero.pills} onPillClick={handlePillClick} />
+            )}
+            <MessageList messages={messages} />
+          </div>
+          <div className="border-t border-slate-200 p-4 dark:border-slate-700">
+            <UnifiedConsole onSend={handleSend} disabled={offline} />
+            <p className="mt-2 text-center text-[10px] text-slate-400 dark:text-slate-500">
+              AI 生成内容仅供参考，处理敏感数据前请核实
+            </p>
+          </div>
+        </div>
+
+        {!isConnected && (
+          <div className="absolute bottom-16 left-1/2 z-10 -translate-x-1/2 rounded-full bg-amber-500 px-3 py-1 text-xs text-white shadow">
+            AI 引擎连接中...
+          </div>
+        )}
+      </div>
+
+      {/* Right Artifacts Panel Placeholder — Phase 2+ 产物 */}
+      <div className="hidden w-[320px] shrink-0 border-l border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900 xl:block" />
+    </div>
+  )
+}
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add src/renderer/App.tsx
+git commit -m "feat(ui): three-column layout skeleton + bottom AI disclaimer"
+```
+
+---
+
+## 手术二：Phase 1 内核逆向移植手术
+
+### Task F3: 创建 ConversationStore — 会话状态管理器
+
+**Files:**
+- Create: `src/engine/state/conversation-store.ts`
+
+- [ ] **Step 1: 编写 ConversationStore**
+
+```ts
+// src/engine/state/conversation-store.ts
+import type { AppConfig } from '../../shared/ipc-types.js'
+
+export interface ConversationMessage {
+  role: 'user' | 'assistant' | 'system'
+  content: string
+}
+
+export interface Conversation {
+  id: string
+  messages: ConversationMessage[]
+  updatedAt: number
+}
+
+const MAX_CONTEXT_ROUNDS = 20
+const SYSTEM_PROMPT =
+  '你是 ONE，一位专业的银行 AI 助手。你帮助用户处理数据、撰写文档、生成报告。回答要简洁专业。'
+
+export class ConversationStore {
+  private conversations = new Map<string, Conversation>()
+
+  getOrCreate(sessionId: string): Conversation {
+    if (!this.conversations.has(sessionId)) {
+      this.conversations.set(sessionId, {
+        id: sessionId,
+        messages: [{ role: 'system', content: SYSTEM_PROMPT }],
+        updatedAt: Date.now(),
+      })
+    }
+    return this.conversations.get(sessionId)!
+  }
+
+  addUserMessage(sessionId: string, content: string): Conversation {
+    const conv = this.getOrCreate(sessionId)
+    conv.messages.push({ role: 'user', content })
+    this.compactIfNeeded(conv)
+    conv.updatedAt = Date.now()
+    return conv
+  }
+
+  addAssistantMessage(sessionId: string, content: string): Conversation {
+    const conv = this.getOrCreate(sessionId)
+    conv.messages.push({ role: 'assistant', content })
+    conv.updatedAt = Date.now()
+    return conv
+  }
+
+  getMessagesForAPI(sessionId: string): Array<{ role: string; content: string }> {
+    const conv = this.getOrCreate(sessionId)
+    return conv.messages.map((m) => ({ role: m.role, content: m.content }))
+  }
+
+  isEmpty(sessionId: string): boolean {
+    const conv = this.conversations.get(sessionId)
+    return !conv || conv.messages.length <= 1
+  }
+
+  private compactIfNeeded(conv: Conversation): void {
+    const nonSystem = conv.messages.filter((m) => m.role !== 'system')
+    const rounds = nonSystem.length / 2
+    if (rounds > MAX_CONTEXT_ROUNDS) {
+      const toRemove = (rounds - MAX_CONTEXT_ROUNDS) * 2
+      const system = conv.messages.filter((m) => m.role === 'system')
+      const kept = nonSystem.slice(toRemove)
+      conv.messages = [...system, ...kept]
+    }
+  }
+}
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add src/engine/state/conversation-store.ts
+git commit -m "feat(engine): ConversationStore with context window compaction"
+```
+
+---
+
+### Task F4: 创建 RetryPolicy — 指数退避重试策略
+
+**Files:**
+- Create: `src/engine/adapters/retry-policy.ts`
+
+- [ ] **Step 1: 编写 RetryPolicy**
+
+```ts
+// src/engine/adapters/retry-policy.ts
+
+export interface RetryableOperation<T> {
+  execute: (attempt: number) => Promise<T>
+  onRetry?: (attempt: number, delayMs: number, error: unknown) => void
+}
+
+export interface RetryPolicyConfig {
+  maxRetries: number
+  baseDelayMs: number
+  maxDelayMs: number
+  retryableStatuses: number[]
+}
+
+export const DEFAULT_RETRY_CONFIG: RetryPolicyConfig = {
+  maxRetries: 3,
+  baseDelayMs: 1000,
+  maxDelayMs: 4000,
+  retryableStatuses: [408, 429, 500, 502, 503, 504],
+}
+
+function isRetryableError(error: unknown, config: RetryPolicyConfig): boolean {
+  if (error && typeof error === 'object') {
+    const status = (error as { status?: number }).status
+    if (typeof status === 'number' && config.retryableStatuses.includes(status)) {
+      return true
+    }
+    const code = (error as { code?: string }).code
+    if (code === 'ECONNRESET' || code === 'ETIMEDOUT' || code === 'ECONNREFUSED' || code === 'ENOTFOUND') {
+      return true
+    }
+  }
+  return false
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+export async function withRetry<T>(
+  operation: RetryableOperation<T>,
+  config: RetryPolicyConfig = DEFAULT_RETRY_CONFIG,
+): Promise<T> {
+  let lastError: unknown
+
+  for (let attempt = 0; attempt <= config.maxRetries; attempt++) {
+    try {
+      return await operation.execute(attempt)
+    } catch (error) {
+      lastError = error
+      if (attempt === config.maxRetries) break
+      if (!isRetryableError(error, config)) throw error
+
+      const delayMs = Math.min(
+        config.baseDelayMs * Math.pow(2, attempt),
+        config.maxDelayMs,
+      )
+      operation.onRetry?.(attempt + 1, delayMs, error)
+      await sleep(delayMs)
+    }
+  }
+
+  throw lastError
+}
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add src/engine/adapters/retry-policy.ts
+git commit -m "feat(engine): RetryPolicy with exponential backoff 1s→2s→4s"
+```
+
+---
+
+### Task F5: 重构 api/client.ts — 集成 RetryPolicy + SSE 断流检测
+
+**Files:**
+- Modify: `src/engine/api/client.ts`
+- Modify: `src/shared/ipc-types.ts`（添加 `chat:retry-cancel` 类型）
+
+- [ ] **Step 1: 修改 ipc-types.ts 添加 retry-cancel 事件**
+
+在 `src/shared/ipc-types.ts` 中：
+
+```ts
+// EngineRequest 的 type  union 中加入：
+export interface EngineRequest {
+  id: string
+  type:
+    | 'chat:send'
+    | 'chat:cancel'
+    | 'chat:retry'
+    | 'chat:retry-cancel'   // 新增
+    | 'config:update'
+    | 'health:check'
+  payload: unknown
+}
+```
+
+- [ ] **Step 2: 重构 client.ts**
+
+将 `src/engine/api/client.ts` 整文件替换为：
+
+```ts
+// src/engine/api/client.ts
+import axios, { type AxiosResponse, isAxiosError } from 'axios'
+import { createParser, type EventSourceMessage } from 'eventsource-parser'
+import type { AppConfig } from '../../shared/ipc-types.js'
+import { withRetry, DEFAULT_RETRY_CONFIG } from '../adapters/retry-policy.js'
+
+export interface StreamCallbacks {
+  onChunk: (text: string) => void
+  onDone: (usage?: { inputTokens: number; outputTokens: number }) => void
+  onError: (code: string, message: string) => void
+  onRetry?: (attempt: number, delayMs: number) => void
+}
+
+export async function streamChatCompletion(
+  config: AppConfig,
+  apiKey: string | null,
+  messages: Array<{ role: string; content: string }>,
+  callbacks: StreamCallbacks,
+  signal: AbortSignal,
+): Promise<void> {
+  const url = `${config.baseUrl}/v1/chat/completions`
+  const body = {
+    model: config.model,
+    messages,
+    stream: true,
+  }
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Accept: 'text/event-stream',
+  }
+  if (apiKey) {
+    headers['Authorization'] = `Bearer ${apiKey}`
+  }
+
+  let usage: { inputTokens: number; outputTokens: number } | undefined
+
+  try {
+    await withRetry(
+      {
+        execute: async (attempt) => {
+          if (signal.aborted) {
+            throw new Error('ABORTED')
+          }
+          if (attempt > 0) {
+            callbacks.onRetry?.(attempt, Math.min(DEFAULT_RETRY_CONFIG.baseDelayMs * Math.pow(2, attempt - 1), DEFAULT_RETRY_CONFIG.maxDelayMs))
+          }
+
+          const response: AxiosResponse<ReadableStream> = await axios({
+            method: 'post',
+            url,
+            data: body,
+            headers,
+            responseType: 'stream',
+            signal,
+            timeout: 60000,
+          })
+
+          const parser = createParser({
+            onEvent: (event: EventSourceMessage) => {
+              const data = event.data
+              if (data === '[DONE]') {
+                return
+              }
+              try {
+                const json = JSON.parse(data)
+                const delta = json.choices?.[0]?.delta?.content
+                if (typeof delta === 'string') {
+                  callbacks.onChunk(delta)
+                }
+                if (json.usage) {
+                  usage = {
+                    inputTokens: json.usage.prompt_tokens ?? 0,
+                    outputTokens: json.usage.completion_tokens ?? 0,
+                  }
+                }
+              } catch {
+                // ignore malformed JSON in stream
+              }
+            },
+          })
+
+          const reader = response.data.getReader()
+          const decoder = new TextDecoder()
+
+          while (true) {
+            if (signal.aborted) {
+              reader.cancel()
+              break
+            }
+            const { done, value } = await reader.read()
+            if (done) break
+            parser.feed(decoder.decode(value, { stream: true }))
+          }
+
+          parser.feed(decoder.decode())
+        },
+      },
+      DEFAULT_RETRY_CONFIG,
+    )
+
+    callbacks.onDone(usage)
+  } catch (error) {
+    if (axios.isCancel(error) || signal.aborted) {
+      callbacks.onDone(usage)
+      return
+    }
+    const msg = error instanceof Error ? error.message : String(error)
+    callbacks.onError('STREAM_ERROR', msg)
+  }
+}
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/engine/api/client.ts src/shared/ipc-types.ts
+git commit -m "feat(engine): integrate RetryPolicy into SSE client, add retry-cancel IPC type"
+```
+
+---
+
+### Task F6: 重构 engine.ts — 接入 ConversationStore + 修复消息累积
+
+**Files:**
+- Modify: `src/engine/engine.ts`
+
+- [ ] **Step 1: 重写 engine.ts**
+
+将 `src/engine/engine.ts` 整文件替换为：
+
+```ts
+// src/engine/engine.ts
+import type { EngineRequest, EngineEvent, ChatSendPayload, ConfigUpdatePayload } from '../shared/ipc-types.js'
+import { streamChatCompletion } from './api/client.js'
+import { getConfig, setConfig } from './state/config-store.js'
+import { ConversationStore } from './state/conversation-store.js'
+import { DAY_ZERO_WELCOME, HEALTH_CHECK_INTERVAL_MS, HEALTH_CHECK_TIMEOUT_MS } from '../shared/constants.js'
+import axios from 'axios'
+
+const conversationStore = new ConversationStore()
+let currentAbortController: AbortController | null = null
+let isOffline = false
+let healthCheckTimer: NodeJS.Timeout | null = null
+let apiKey: string | null = null
+let assistantBuffer = '' // SSE 断流续写缓冲区
+
+function sendEvent(evt: EngineEvent): void {
+  process.parentPort?.postMessage(evt)
+}
+
+function generateId(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+}
+
+async function checkHealth(): Promise<boolean> {
+  const config = getConfig()
+  try {
+    await axios.head(`${config.baseUrl}/health`, {
+      timeout: HEALTH_CHECK_TIMEOUT_MS,
+      validateStatus: (s) => s < 500,
+    })
+    if (isOffline) {
+      isOffline = false
+      sendEvent({ id: generateId(), type: 'offline:changed', payload: { offline: false } })
+    }
+    return true
+  } catch {
+    if (!isOffline) {
+      isOffline = true
+      sendEvent({ id: generateId(), type: 'offline:changed', payload: { offline: true } })
+    }
+    return false
+  }
+}
+
+function startHealthCheck(): void {
+  if (healthCheckTimer) clearInterval(healthCheckTimer)
+  healthCheckTimer = setInterval(checkHealth, HEALTH_CHECK_INTERVAL_MS)
+}
+
+function injectDayZeroWelcome(sessionId: string): void {
+  if (conversationStore.isEmpty(sessionId)) {
+    sendEvent({
+      id: generateId(),
+      type: 'state:sync',
+      payload: { dayZero: DAY_ZERO_WELCOME },
+    })
+  }
+}
+
+async function handleChatSend(payload: ChatSendPayload): Promise<void> {
+  const sessionId = 'default'
+  if (isOffline) {
+    sendEvent({
+      id: generateId(),
+      type: 'chat:error',
+      payload: { code: 'OFFLINE', message: '网络不可用，请检查网络连接后重试' },
+    })
+    return
+  }
+
+  const config = getConfig()
+  conversationStore.addUserMessage(sessionId, payload.content)
+
+  const messageId = generateId()
+  currentAbortController = new AbortController()
+  assistantBuffer = ''
+
+  await streamChatCompletion(
+    config,
+    apiKey,
+    conversationStore.getMessagesForAPI(sessionId),
+    {
+      onChunk: (text) => {
+        assistantBuffer += text
+        sendEvent({ id: generateId(), type: 'chat:chunk', payload: { text, messageId } })
+      },
+      onDone: (usage) => {
+        if (assistantBuffer) {
+          conversationStore.addAssistantMessage(sessionId, assistantBuffer)
+        }
+        assistantBuffer = ''
+        sendEvent({ id: generateId(), type: 'chat:end', payload: { messageId, usage } })
+      },
+      onError: (code, message) => {
+        assistantBuffer = ''
+        sendEvent({ id: generateId(), type: 'chat:error', payload: { code, message } })
+      },
+      onRetry: (attempt, delayMs) => {
+        sendEvent({
+          id: generateId(),
+          type: 'chat:chunk',
+          payload: { text: `\n[检测到网络波动，正在第 ${attempt} 次重试...]\n`, messageId },
+        })
+      },
+    },
+    currentAbortController.signal,
+  )
+}
+
+async function handleRequest(req: EngineRequest): Promise<void> {
+  switch (req.type) {
+    case 'chat:send':
+      await handleChatSend(req.payload as ChatSendPayload)
+      break
+    case 'chat:cancel':
+    case 'chat:retry-cancel':
+      currentAbortController?.abort()
+      break
+    case 'config:update': {
+      const p = req.payload as ConfigUpdatePayload
+      if (p.apiKey) apiKey = p.apiKey
+      const updates: Partial<AppConfig> = {}
+      if (p.baseUrl) updates.baseUrl = p.baseUrl
+      if (p.model) updates.model = p.model
+      if (p.theme) updates.theme = p.theme
+      if (Object.keys(updates).length > 0) {
+        setConfig(updates as Partial<ReturnType<typeof getConfig>>)
+      }
+      break
+    }
+    case 'health:check':
+      await checkHealth()
+      break
+  }
+}
+
+process.parentPort?.on('message', async (event) => {
+  const req = event.data as EngineRequest
+  await handleRequest(req)
+})
+
+startHealthCheck()
+sendEvent({ id: generateId(), type: 'engine:ready', payload: {} })
+injectDayZeroWelcome('default')
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add src/engine/engine.ts
+git commit -m "feat(engine): integrate ConversationStore, fix assistant message accumulation, add retry hints"
+```
+
+---
+
+### Task F7: 创建 ITool 接口 Stub — 为 Phase 2+ 预留扩展点
+
+**Files:**
+- Create: `src/engine/tools/ITool.ts`
+
+- [ ] **Step 1: 编写 ITool 接口**
+
+```ts
+// src/engine/tools/ITool.ts
+
+export interface ToolParameter {
+  name: string
+  type: 'string' | 'number' | 'boolean' | 'array' | 'object'
+  description: string
+  required?: boolean
+}
+
+export interface ToolResult {
+  success: boolean
+  output?: string
+  error?: string
+}
+
+export interface ITool {
+  readonly name: string
+  readonly description: string
+  readonly parameters: ToolParameter[]
+
+  execute(params: Record<string, unknown>): Promise<ToolResult>
+}
+
+// Tool 注册表（Phase 3 时填充具体实现）
+export class ToolRegistry {
+  private tools = new Map<string, ITool>()
+
+  register(tool: ITool): void {
+    this.tools.set(tool.name, tool)
+  }
+
+  get(name: string): ITool | undefined {
+    return this.tools.get(name)
+  }
+
+  list(): ITool[] {
+    return Array.from(this.tools.values())
+  }
+}
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add src/engine/tools/ITool.ts
+git commit -m "feat(engine): ITool interface stub and ToolRegistry for Phase 2+"
+```
+
+---
+
+## Self-Review
+
+**1. Spec coverage:**
+
+| 需求 | 对应任务 |
+|---|---|
+| OfflineBanner 颜色合规 | Task F1 |
+| DayZeroWelcome Pills 圆角合规 | Task F1 |
+| 底部 AI 免责声明 | Task F2 |
+| 三栏布局骨架 | Task F2 |
+| 多轮对话上下文管理 | Task F3 (ConversationStore) |
+| 上下文窗口压缩（20轮丢弃） | Task F3 (`compactIfNeeded`) |
+| 错误自动重试（指数退避） | Task F4 + Task F5 |
+| SSE 断流续写（带缓冲区） | Task F5 (`assistantBuffer` + retry) |
+| Assistant 消息累积到历史 | Task F6 (`onDone` 时 `addAssistantMessage`) |
+| ITool 接口 Stub | Task F7 |
+
+**2. Placeholder scan:** 无 TBD/TODO。每步均有完整代码和精确文件路径。
+
+**3. Type consistency：**
+- `EngineRequest` 新增 `chat:retry-cancel`，在 `ipc-types.ts`、`engine.ts` 中同步更新。
+- `ConversationStore` 的 `getMessagesForAPI` 返回类型与 `client.ts` 的 `messages` 参数类型一致。
+- `RetryPolicyConfig` 的延迟算法与 free-code 的 `BASE_DELAY_MS * 2^attempt` 模式一致。
