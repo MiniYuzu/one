@@ -2,19 +2,16 @@
 import type { EngineRequest, EngineEvent, ChatSendPayload, ConfigUpdatePayload } from '../shared/ipc-types.js'
 import { streamChatCompletion } from './api/client.js'
 import { getConfig, setConfig } from './state/config-store.js'
+import { ConversationStore } from './state/conversation-store.js'
 import { DAY_ZERO_WELCOME, HEALTH_CHECK_INTERVAL_MS, HEALTH_CHECK_TIMEOUT_MS } from '../shared/constants.js'
 import axios from 'axios'
 
-interface ConversationMessage {
-  role: 'user' | 'assistant' | 'system'
-  content: string
-}
-
-const conversations = new Map<string, ConversationMessage[]>()
+const conversationStore = new ConversationStore()
 let currentAbortController: AbortController | null = null
 let isOffline = false
 let healthCheckTimer: NodeJS.Timeout | null = null
 let apiKey: string | null = null
+let assistantBuffer = ''
 
 function sendEvent(evt: EngineEvent): void {
   process.parentPort?.postMessage(evt)
@@ -50,29 +47,12 @@ function startHealthCheck(): void {
   healthCheckTimer = setInterval(checkHealth, HEALTH_CHECK_INTERVAL_MS)
 }
 
-function getOrCreateConversation(sessionId: string): ConversationMessage[] {
-  if (!conversations.has(sessionId)) {
-    const msgs: ConversationMessage[] = [
-      {
-        role: 'system',
-        content:
-          '你是 ONE，一位专业的银行 AI 助手。你帮助用户处理数据、撰写文档、生成报告。回答要简洁专业。',
-      },
-    ]
-    conversations.set(sessionId, msgs)
-  }
-  return conversations.get(sessionId)!
-}
-
 function injectDayZeroWelcome(sessionId: string): void {
-  const msgs = getOrCreateConversation(sessionId)
-  if (msgs.length <= 1) {
+  if (conversationStore.isEmpty(sessionId)) {
     sendEvent({
       id: generateId(),
       type: 'state:sync',
-      payload: {
-        dayZero: DAY_ZERO_WELCOME,
-      },
+      payload: { dayZero: DAY_ZERO_WELCOME },
     })
   }
 }
@@ -89,25 +69,38 @@ async function handleChatSend(payload: ChatSendPayload): Promise<void> {
   }
 
   const config = getConfig()
-  const msgs = getOrCreateConversation(sessionId)
-  msgs.push({ role: 'user', content: payload.content })
+  conversationStore.addUserMessage(sessionId, payload.content)
 
   const messageId = generateId()
   currentAbortController = new AbortController()
+  assistantBuffer = ''
 
   await streamChatCompletion(
     config,
     apiKey,
-    msgs,
+    conversationStore.getMessagesForAPI(sessionId),
     {
       onChunk: (text) => {
+        assistantBuffer += text
         sendEvent({ id: generateId(), type: 'chat:chunk', payload: { text, messageId } })
       },
       onDone: (usage) => {
+        if (assistantBuffer) {
+          conversationStore.addAssistantMessage(sessionId, assistantBuffer)
+        }
+        assistantBuffer = ''
         sendEvent({ id: generateId(), type: 'chat:end', payload: { messageId, usage } })
       },
       onError: (code, message) => {
+        assistantBuffer = ''
         sendEvent({ id: generateId(), type: 'chat:error', payload: { code, message } })
+      },
+      onRetry: (attempt, delayMs) => {
+        sendEvent({
+          id: generateId(),
+          type: 'chat:chunk',
+          payload: { text: `\n[检测到网络波动，正在第 ${attempt} 次重试...]\n`, messageId },
+        })
       },
     },
     currentAbortController.signal,
@@ -120,6 +113,7 @@ async function handleRequest(req: EngineRequest): Promise<void> {
       await handleChatSend(req.payload as ChatSendPayload)
       break
     case 'chat:cancel':
+    case 'chat:retry-cancel':
       currentAbortController?.abort()
       break
     case 'config:update': {
@@ -140,7 +134,6 @@ async function handleRequest(req: EngineRequest): Promise<void> {
   }
 }
 
-// Bootstrap
 process.parentPort?.on('message', async (event) => {
   const req = event.data as EngineRequest
   await handleRequest(req)
