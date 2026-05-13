@@ -1,5 +1,5 @@
 // src/engine/engine.ts
-import type { EngineRequest, EngineEvent, ChatSendPayload, ConfigUpdatePayload } from '../shared/ipc-types.js'
+import type { EngineRequest, EngineEvent, ChatSendPayload, ConfigUpdatePayload, AppConfig } from '../shared/ipc-types.js'
 import { streamChatCompletion } from './api/client.js'
 import { getConfig, setConfig } from './state/config-store.js'
 import { ConversationStore } from './state/conversation-store.js'
@@ -72,6 +72,10 @@ async function handleChatSend(payload: ChatSendPayload): Promise<void> {
   conversationStore.addUserMessage(sessionId, payload.content)
 
   const messageId = generateId()
+  await executeStream(sessionId, messageId, config)
+}
+
+async function executeStream(sessionId: string, messageId: string, config: AppConfig): Promise<void> {
   currentAbortController = new AbortController()
   assistantBuffer = ''
 
@@ -112,6 +116,30 @@ async function handleRequest(req: EngineRequest): Promise<void> {
     case 'chat:send':
       await handleChatSend(req.payload as ChatSendPayload)
       break
+    case 'chat:retry': {
+      const sessionId = 'default'
+      const lastMsg = conversationStore.getLastUserMessage(sessionId)
+      if (!lastMsg) {
+        sendEvent({
+          id: generateId(),
+          type: 'chat:error',
+          payload: { code: 'NO_MESSAGE', message: '没有可重试的消息' },
+        })
+        break
+      }
+      if (isOffline) {
+        sendEvent({
+          id: generateId(),
+          type: 'chat:error',
+          payload: { code: 'OFFLINE', message: '网络不可用，请检查网络连接后重试' },
+        })
+        break
+      }
+      const config = getConfig()
+      const messageId = generateId()
+      await executeStream(sessionId, messageId, config)
+      break
+    }
     case 'chat:cancel':
     case 'chat:retry-cancel':
       currentAbortController?.abort()

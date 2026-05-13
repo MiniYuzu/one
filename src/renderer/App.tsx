@@ -1,11 +1,13 @@
 // src/renderer/App.tsx
 import { useEffect, useState } from 'react'
+import { Sun, Moon } from 'lucide-react'
 import { MessageList } from './components/chat/MessageList.js'
 import { UnifiedConsole } from './components/console/UnifiedConsole.js'
 import { OfflineBanner } from './components/system/OfflineBanner.js'
 import { DayZeroWelcome } from './components/system/DayZeroWelcome.js'
 import { useEngine } from './hooks/useEngine.js'
 import { useTheme } from './hooks/useTheme.js'
+import { useResponsiveLayout } from './hooks/useResponsiveLayout.js'
 import type { EngineEvent } from '../../shared/ipc-types.js'
 
 export interface ChatMessage {
@@ -22,6 +24,7 @@ export function App() {
   const [dayZero, setDayZero] = useState<{ content: string; pills: Array<{ label: string; prompt: string }> } | null>(null)
   const [engineReady, setEngineReady] = useState(false)
   const { theme, setTheme } = useTheme()
+  const { isLeftOpen, isRightOpen } = useResponsiveLayout()
 
   const { send, isConnected } = useEngine((evt: EngineEvent) => {
     switch (evt.type) {
@@ -90,22 +93,37 @@ export function App() {
   return (
     <div className="flex h-screen w-screen bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-50">
       {/* Left Rail Placeholder — Phase 2+ 导航 */}
-      <div className="hidden w-16 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900 lg:flex" />
+      {isLeftOpen && (
+        <div className="flex w-16 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900" />
+      )}
 
       {/* Middle Content */}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-[500px] flex-1 flex-col">
         <OfflineBanner offline={offline} onRetry={() => send({ id: `hc-${Date.now()}`, type: 'health:check', payload: {} })} />
 
-        <div className="absolute right-4 top-4 z-10">
-          <select
-            value={theme}
-            onChange={(e) => setTheme(e.target.value as 'light' | 'dark' | 'system')}
-            className="rounded-8 border border-slate-200 bg-white px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-800"
+        <div className="absolute right-4 top-4 z-10 flex items-center gap-1 rounded-8 border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-800">
+          <button
+            onClick={() => setTheme('light')}
+            className={`rounded-md p-1.5 transition ${
+              theme === 'light'
+                ? 'bg-slate-100 text-slate-900 dark:bg-slate-700 dark:text-slate-100'
+                : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+            }`}
+            aria-label="浅色模式"
           >
-            <option value="light">浅色</option>
-            <option value="dark">深色</option>
-            <option value="system">跟随系统</option>
-          </select>
+            <Sun size={14} />
+          </button>
+          <button
+            onClick={() => setTheme('dark')}
+            className={`rounded-md p-1.5 transition ${
+              theme === 'dark'
+                ? 'bg-slate-100 text-slate-900 dark:bg-slate-700 dark:text-slate-100'
+                : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+            }`}
+            aria-label="深色模式"
+          >
+            <Moon size={14} />
+          </button>
         </div>
 
         <div className="flex flex-1 flex-col overflow-hidden">
@@ -131,7 +149,9 @@ export function App() {
       </div>
 
       {/* Right Artifacts Panel Placeholder — Phase 2+ 产物 */}
-      <div className="hidden w-[320px] shrink-0 border-l border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900 xl:block" />
+      {isRightOpen && (
+        <div className="w-[320px] shrink-0 border-l border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900" />
+      )}
     </div>
   )
 }

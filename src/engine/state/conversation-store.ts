@@ -55,6 +55,17 @@ export class ConversationStore {
     return !conv || conv.messages.length <= 1
   }
 
+  getLastUserMessage(sessionId: string): string | null {
+    const conv = this.conversations.get(sessionId)
+    if (!conv) return null
+    for (let i = conv.messages.length - 1; i >= 0; i--) {
+      if (conv.messages[i].role === 'user') {
+        return conv.messages[i].content
+      }
+    }
+    return null
+  }
+
   private compactIfNeeded(conv: Conversation): void {
     const nonSystem = conv.messages.filter((m) => m.role !== 'system')
     const rounds = nonSystem.length / 2
