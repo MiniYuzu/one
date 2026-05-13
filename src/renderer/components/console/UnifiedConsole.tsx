@@ -55,120 +55,125 @@ export function UnifiedConsole({ onSend, disabled }: UnifiedConsoleProps) {
 
   return (
     <div className="mx-auto w-full max-w-3xl">
-      {/* Context Pills row — placeholder for file attachments */}
-      <div className="mb-2 flex flex-wrap gap-1.5">
-        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:border-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-300">
-          <Paperclip size={10} />
-          销售数据_Q1.xlsx
-        </span>
-      </div>
+      <div className="rounded-2xl border border-slate-200 bg-white shadow-2xl transition focus-within:border-indigo-300 focus-within:ring-4 focus-within:ring-indigo-50 dark:border-slate-700 dark:bg-slate-800 dark:focus-within:border-indigo-500 dark:focus-within:ring-indigo-500/20">
+        {/* Top: context pills */}
+        <div className="flex flex-wrap gap-1.5 px-3 pt-3">
+          <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:border-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-300">
+            <Paperclip size={10} />
+            销售数据_Q1.xlsx
+          </span>
+        </div>
 
-      {/* Main container */}
-      <div className="relative flex items-end gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl transition focus-within:border-indigo-300 focus-within:ring-4 focus-within:ring-indigo-50 dark:border-slate-700 dark:bg-slate-800 dark:focus-within:border-indigo-500 dark:focus-within:ring-indigo-500/20">
-        {/* Left action buttons */}
-        <div className="flex shrink-0 items-center gap-1 pb-1">
+        {/* Middle: textarea + send button */}
+        <div className="flex items-end gap-2 p-3">
+          <textarea
+            ref={textareaRef}
+            rows={1}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onInput={handleInput}
+            disabled={disabled}
+            placeholder={disabled ? '网络不可用，请检查网络后重试' : '描述需求，使用 @ 引用文件或对话...'}
+            className="max-h-[200px] w-full resize-none bg-transparent px-2 py-2 text-sm outline-none placeholder:text-slate-400 disabled:opacity-50"
+          />
           <button
-            disabled
-            className="flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-medium text-slate-500 opacity-50 transition hover:bg-slate-50 dark:border-slate-600 dark:text-slate-400"
-            title="@引入（Phase 1 启用）"
+            onClick={handleSubmit}
+            disabled={disabled || !text.trim()}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white transition hover:-translate-y-0.5 hover:bg-indigo-700 disabled:opacity-40 disabled:hover:translate-y-0"
+            aria-label="发送"
           >
-            <AtSign size={12} />
-            <span className="hidden sm:inline">引入</span>
-          </button>
-          <button
-            disabled
-            className="rounded-lg p-1.5 text-slate-400 opacity-50 transition hover:bg-slate-50 dark:hover:bg-slate-700"
-            title="附件（Phase 1 启用）"
-          >
-            <Paperclip size={16} />
+            <Send size={16} />
           </button>
         </div>
 
-        <textarea
-          ref={textareaRef}
-          rows={1}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onInput={handleInput}
-          disabled={disabled}
-          placeholder={disabled ? '网络不可用，请检查网络后重试' : '输入消息，按 Enter 发送...'}
-          className="max-h-[200px] w-full resize-none bg-transparent px-2 py-2 text-sm outline-none placeholder:text-slate-400 disabled:opacity-50"
-        />
-
-        {/* Right send button */}
-        <button
-          onClick={handleSubmit}
-          disabled={disabled || !text.trim()}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white transition hover:-translate-y-0.5 hover:bg-indigo-700 disabled:opacity-40 disabled:hover:translate-y-0"
-          aria-label="发送"
-        >
-          <Send size={16} />
-        </button>
-      </div>
-
-      {/* Bottom toolbar: mode + model switches */}
-      <div className="mt-2 flex items-center justify-between px-1">
-        {/* Mode switch */}
-        <div className="relative">
-          <button
-            onClick={() => setShowModeDropdown(!showModeDropdown)}
-            className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition ${activeMode.color}`}
-          >
-            <activeMode.icon size={12} />
-            {activeMode.label}
-            <span className="text-[10px] opacity-60">· {activeMode.desc}</span>
-            <ChevronDown size={10} className={`transition ${showModeDropdown ? 'rotate-180' : ''}`} />
-          </button>
-          {showModeDropdown && (
-            <div className="absolute bottom-full left-0 z-20 mb-1 w-48 rounded-xl border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-800">
-              {MODES.map((m) => (
-                <button
-                  key={m.id}
-                  onClick={() => { setMode(m.id); setShowModeDropdown(false) }}
-                  className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs transition ${
-                    mode === m.id
-                      ? 'bg-slate-100 font-medium text-slate-900 dark:bg-slate-700 dark:text-slate-100'
-                      : 'text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-700'
-                  }`}
-                >
-                  <m.icon size={14} />
-                  <div className="flex flex-col">
-                    <span>{m.label}</span>
-                    <span className="text-[10px] text-slate-400">{m.desc}</span>
-                  </div>
-                </button>
-              ))}
+        {/* Bottom toolbar: mode + model + actions */}
+        <div className="flex items-center justify-between border-t border-slate-100 px-3 py-2 dark:border-slate-700">
+          <div className="flex items-center gap-2">
+            {/* Mode switch */}
+            <div className="relative">
+              <button
+                onClick={() => setShowModeDropdown(!showModeDropdown)}
+                className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition ${activeMode.color}`}
+              >
+                <activeMode.icon size={12} />
+                {activeMode.label}
+                <span className="text-[10px] opacity-60">· {activeMode.desc}</span>
+                <ChevronDown size={10} className={`transition ${showModeDropdown ? 'rotate-180' : ''}`} />
+              </button>
+              {showModeDropdown && (
+                <div className="absolute bottom-full left-0 z-20 mb-1 w-48 rounded-xl border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-800">
+                  {MODES.map((m) => (
+                    <button
+                      key={m.id}
+                      onClick={() => { setMode(m.id); setShowModeDropdown(false) }}
+                      className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs transition ${
+                        mode === m.id
+                          ? 'bg-slate-100 font-medium text-slate-900 dark:bg-slate-700 dark:text-slate-100'
+                          : 'text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      <m.icon size={14} />
+                      <div className="flex flex-col">
+                        <span>{m.label}</span>
+                        <span className="text-[10px] text-slate-400">{m.desc}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-          )}
-        </div>
 
-        {/* Model switch */}
-        <div className="relative">
-          <button
-            onClick={() => setShowModelDropdown(!showModelDropdown)}
-            className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700"
-          >
-            {MODELS.find((m) => m.id === model)?.label}
-            <ChevronDown size={10} className={`transition ${showModelDropdown ? 'rotate-180' : ''}`} />
-          </button>
-          {showModelDropdown && (
-            <div className="absolute bottom-full right-0 z-20 mb-1 w-40 rounded-xl border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-800">
-              {MODELS.map((m) => (
-                <button
-                  key={m.id}
-                  onClick={() => { setModel(m.id); setShowModelDropdown(false) }}
-                  className={`flex w-full rounded-lg px-3 py-2 text-left text-xs transition ${
-                    model === m.id
-                      ? 'bg-slate-100 font-medium text-slate-900 dark:bg-slate-700 dark:text-slate-100'
-                      : 'text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-700'
-                  }`}
-                >
-                  {m.label}
-                </button>
-              ))}
+            {/* Model switch */}
+            <div className="relative">
+              <button
+                onClick={() => setShowModelDropdown(!showModelDropdown)}
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700"
+              >
+                {MODELS.find((m) => m.id === model)?.label}
+                <ChevronDown size={10} className={`transition ${showModelDropdown ? 'rotate-180' : ''}`} />
+              </button>
+              {showModelDropdown && (
+                <div className="absolute bottom-full left-0 z-20 mb-1 w-40 rounded-xl border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-800">
+                  {MODELS.map((m) => (
+                    <button
+                      key={m.id}
+                      onClick={() => { setModel(m.id); setShowModelDropdown(false) }}
+                      className={`flex w-full rounded-lg px-3 py-2 text-left text-xs transition ${
+                        model === m.id
+                          ? 'bg-slate-100 font-medium text-slate-900 dark:bg-slate-700 dark:text-slate-100'
+                          : 'text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-          )}
+
+            {/* Divider */}
+            <div className="h-4 w-px bg-slate-200 dark:bg-slate-700" />
+
+            {/* @引入 button */}
+            <button
+              disabled
+              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-400 opacity-50 transition hover:bg-slate-50 dark:hover:bg-slate-700"
+              title="@引入（Phase 1 启用）"
+            >
+              <AtSign size={12} />
+              <span>引入</span>
+            </button>
+
+            {/* Paperclip button */}
+            <button
+              disabled
+              className="rounded-md p-1 text-slate-400 opacity-50 transition hover:bg-slate-50 dark:hover:bg-slate-700"
+              title="附件（Phase 1 启用）"
+            >
+              <Paperclip size={16} />
+            </button>
+          </div>
         </div>
       </div>
     </div>
