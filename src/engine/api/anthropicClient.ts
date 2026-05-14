@@ -4,30 +4,45 @@ import type { StreamEvent, SystemAPIErrorMessage } from '../types/message.js'
 import type { Tool } from '../types/tool.js'
 import { getRetryDelay, is529Error } from './withRetry.js'
 
-export interface AnthropicSSEChunk {
-  type: 'message_start' | 'content_block_start' | 'content_block_delta' | 'content_block_stop' | 'message_delta' | 'message_stop' | 'ping'
-  message?: {
-    id: string
-    type: 'message'
-    role: 'assistant'
-    content: []
-    model: string
-    stop_reason?: string | null
-    stop_sequence?: string | null
-    usage?: { input_tokens: number; output_tokens: number }
-  }
-  index?: number
-  content_block?:
-    | { type: 'text'; text: string }
-    | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
-    | { type: 'thinking'; thinking: string; signature?: string }
-  delta?:
-    | { type: 'text_delta'; text: string }
-    | { type: 'input_json_delta'; partial_json: string }
-    | { type: 'thinking_delta'; thinking: string }
-    | { type: 'signature_delta'; signature: string }
-  usage?: { input_tokens: number; output_tokens: number }
-}
+export type AnthropicSSEChunk =
+  | {
+      type: 'message_start'
+      message: {
+        id: string
+        type: 'message'
+        role: 'assistant'
+        content: []
+        model: string
+        stop_reason?: string | null
+        stop_sequence?: string | null
+        usage?: { input_tokens: number; output_tokens: number }
+      }
+    }
+  | {
+      type: 'content_block_start'
+      index: number
+      content_block:
+        | { type: 'text'; text: string }
+        | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
+        | { type: 'thinking'; thinking: string; signature?: string }
+    }
+  | {
+      type: 'content_block_delta'
+      index: number
+      delta:
+        | { type: 'text_delta'; text: string }
+        | { type: 'input_json_delta'; partial_json: string }
+        | { type: 'thinking_delta'; thinking: string }
+        | { type: 'signature_delta'; signature: string }
+    }
+  | { type: 'content_block_stop'; index: number }
+  | {
+      type: 'message_delta'
+      delta: { stop_reason?: string | null; stop_sequence?: string | null }
+      usage?: { input_tokens: number; output_tokens: number }
+    }
+  | { type: 'message_stop' }
+  | { type: 'ping' }
 
 export interface CallModelOptions {
   model: string
@@ -94,7 +109,7 @@ function* adaptAnthropicSSEToStreamEvents(chunk: AnthropicSSEChunk): Generator<S
         usage: chunk.usage
           ? { inputTokens: chunk.usage.input_tokens ?? 0, outputTokens: chunk.usage.output_tokens ?? 0 }
           : undefined,
-        stop_reason: (chunk as any).stop_reason ?? null,
+        stop_reason: chunk.delta?.stop_reason ?? null,
       }
       break
     }
