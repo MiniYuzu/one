@@ -30,6 +30,32 @@ export function createMainWindow(): BrowserWindow {
     mainWindow.loadFile(path.join(__dirname, 'renderer/index.html'))
   }
 
+  // Fallback for copy/paste/selection shortcuts when sandboxed renderer
+  // doesn't receive menu accelerator events reliably.
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    const isCmdOrCtrl = process.platform === 'darwin' ? input.meta : input.control
+    if (input.type === 'keyDown' && isCmdOrCtrl && !input.alt && !input.shift) {
+      switch (input.key) {
+        case 'c':
+          mainWindow?.webContents.copy()
+          event.preventDefault()
+          break
+        case 'v':
+          mainWindow?.webContents.paste()
+          event.preventDefault()
+          break
+        case 'a':
+          mainWindow?.webContents.selectAll()
+          event.preventDefault()
+          break
+        case 'x':
+          mainWindow?.webContents.cut()
+          event.preventDefault()
+          break
+      }
+    }
+  })
+
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show()
     if (process.env.NODE_ENV === 'development') {
