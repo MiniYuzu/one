@@ -20,6 +20,10 @@ export interface ChatMessage {
   content: string
   streaming?: boolean
   error?: boolean
+  blocks?: Array<
+    | { type: 'tool_use'; name: string; input: string }
+    | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean }
+  >
 }
 
 export function App() {
@@ -79,6 +83,48 @@ export function App() {
       case 'state:sync': {
         const p = evt.payload as { dayZero?: { content: string; pills: Array<{ label: string; prompt: string }> } }
         if (p.dayZero) setDayZero(p.dayZero)
+        break
+      }
+      case 'chat:tool_use': {
+        const p = evt.payload as { messageId: string; id: string; name: string; input: string }
+        setMessages((prev) => {
+          const last = prev[prev.length - 1]
+          if (last && last.role === 'assistant') {
+            const updated = [...prev]
+            updated[updated.length - 1] = {
+              ...last,
+              blocks: [...(last.blocks || []), { type: 'tool_use', name: p.name, input: p.input }],
+            }
+            return updated
+          }
+          return [...prev, {
+            id: p.messageId,
+            role: 'assistant',
+            content: '',
+            blocks: [{ type: 'tool_use', name: p.name, input: p.input }],
+          }]
+        })
+        break
+      }
+      case 'chat:tool_result': {
+        const p = evt.payload as { messageId: string; tool_use_id: string; content: string; is_error?: boolean }
+        setMessages((prev) => {
+          const last = prev[prev.length - 1]
+          if (last && last.role === 'assistant') {
+            const updated = [...prev]
+            updated[updated.length - 1] = {
+              ...last,
+              blocks: [...(last.blocks || []), { type: 'tool_result', tool_use_id: p.tool_use_id, content: p.content, is_error: p.is_error }],
+            }
+            return updated
+          }
+          return [...prev, {
+            id: p.messageId,
+            role: 'assistant',
+            content: '',
+            blocks: [{ type: 'tool_result', tool_use_id: p.tool_use_id, content: p.content, is_error: p.is_error }],
+          }]
+        })
         break
       }
       case 'engine:ready':

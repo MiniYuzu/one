@@ -6,6 +6,7 @@ import { UserBubble } from './UserBubble.js'
 import { MarkdownRenderer } from './MarkdownRenderer.js'
 import { ThinkingChain } from './ThinkingChain.js'
 import { PlanCard } from './PlanCard.js'
+import { ToolCallCard } from './ToolCallCard.js'
 import type { ChatMessage } from '../../App.js'
 
 interface MessageListProps {
@@ -127,6 +128,15 @@ export function MessageList({ messages, isWaiting }: MessageListProps) {
               <PlanCard />
               <div className="rounded-2xl rounded-tl-sm bg-slate-100 px-4 py-3 shadow-sm dark:bg-slate-800">
                 <ThinkableMessage content={msg.content} />
+                {msg.blocks?.map((block, idx) => {
+                  if (block.type === 'tool_use') {
+                    return <ToolCallCard key={idx} name={block.name} input={block.input} status="running" />
+                  }
+                  if (block.type === 'tool_result') {
+                    return <ToolCallCard key={idx} content={block.content} isError={block.is_error} status="done" />
+                  }
+                  return null
+                })}
                 {msg.streaming && (
                   <div className="mt-2 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                     <Loader2 size={12} className="animate-spin" />
