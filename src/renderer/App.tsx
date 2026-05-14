@@ -1,5 +1,5 @@
 // src/renderer/App.tsx
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Toaster, toast } from 'sonner'
 import { MessageList } from './components/chat/MessageList.js'
 import { UnifiedConsole } from './components/console/UnifiedConsole.js'
@@ -37,6 +37,31 @@ export function App() {
   const [isDragging, setIsDragging] = useState(false)
   const { theme, setTheme } = useTheme()
   const { isLeftOpen: isLeftOpenResponsive, isRightOpen } = useResponsiveLayout()
+
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  const isAtBottomRef = useRef(true)
+
+  function handleScroll() {
+    const el = scrollRef.current
+    if (!el) return
+    isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+  }
+
+  useEffect(() => {
+    const scrollEl = scrollRef.current
+    const contentEl = contentRef.current
+    if (!scrollEl || !contentEl) return
+
+    const observer = new ResizeObserver(() => {
+      if (isAtBottomRef.current) {
+        scrollEl.scrollTo({ top: scrollEl.scrollHeight, behavior: 'auto' })
+      }
+    })
+
+    observer.observe(contentEl)
+    return () => observer.disconnect()
+  }, [])
 
   const effectiveLeftOpen = isLeftOpenManual !== null ? isLeftOpenManual : isLeftOpenResponsive
   const effectiveRightOpen = isRightOpen && isRightOpenManual
@@ -145,6 +170,11 @@ export function App() {
     setMessages((prev) => [...prev, { id, role: 'user', content: content.trim() }])
     setIsWaiting(true)
     send({ id: `req-${Date.now()}`, type: 'chat:send', payload: { content: content.trim(), model } })
+
+    isAtBottomRef.current = true
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
+    })
   }
 
   const handlePillClick = (prompt: string) => {
@@ -177,11 +207,17 @@ export function App() {
         <OfflineBanner offline={offline} onRetry={() => send({ id: `hc-${Date.now()}`, type: 'health:check', payload: {} })} />
 
         <div className="flex flex-1 flex-col overflow-hidden">
-          <div className="flex-1 overflow-y-auto p-4 scrollbar-thin">
-            {dayZero && messages.length === 0 && (
-              <DayZeroWelcome content={dayZero.content} pills={dayZero.pills} onPillClick={handlePillClick} />
-            )}
-            <MessageList messages={messages} isWaiting={isWaiting} />
+          <div
+            ref={scrollRef}
+            onScroll={handleScroll}
+            className="flex-1 overflow-y-auto p-4 scrollbar-thin"
+          >
+            <div ref={contentRef} className="flex flex-col gap-4">
+              {dayZero && messages.length === 0 && (
+                <DayZeroWelcome content={dayZero.content} pills={dayZero.pills} onPillClick={handlePillClick} />
+              )}
+              <MessageList messages={messages} isWaiting={isWaiting} />
+            </div>
           </div>
           <div className="border-t border-slate-200 p-4 dark:border-slate-700">
             <UnifiedConsole onSend={handleSend} disabled={offline} />
