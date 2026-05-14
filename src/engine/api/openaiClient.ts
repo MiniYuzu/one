@@ -26,7 +26,7 @@ function releaseStreamResources(
 }
 
 export async function* streamChatCompletion(
-  messages: Array<{ role: string; content: string | unknown[] }>,
+  messages: Array<{ role: string; content?: string | null | unknown[]; tool_calls?: unknown[]; tool_call_id?: string }>,
   systemPrompt: string | string[],
   options: CallModelOptions,
 ): AsyncGenerator<StreamEvent | SystemAPIErrorMessage, void> {
@@ -104,7 +104,7 @@ export async function* streamChatCompletion(
       querySource: 'repl_main_thread',
     }
 
-    const generator = withRetry(
+    const retryGenerator = withRetry(
       () => ({ client: 'axios' }),
       async (_client, attempt, _context) => {
         if (options.signal.aborted) throw new Error('ABORTED')
@@ -120,49 +120,73 @@ export async function* streamChatCompletion(
         })
 
         const webStream = Readable.toWeb(axiosResponse.data) as unknown as ReadableStream<Uint8Array>
-        reader = webStream.getReader()
-
-        const parser = createParser({
-          onEvent: (event: EventSourceMessage) => {
-            if (event.data === '[DONE]') return
-            try {
-              const json = JSON.parse(event.data) as OpenAIStreamChunk
-              for (const evt of adaptOpenAISSEToStreamEvents(json)) {
-                // Events are yielded via the outer generator, not here
-              }
-            } catch {
-              console.warn('Malformed SSE chunk:', event.data)
-            }
-          },
-        })
-
-        resetStreamIdleTimer()
-        const decoder = new TextDecoder()
-
-        while (true) {
-          if (streamIdleAborted) {
-            throw new Error(`Streaming idle timeout after ${STREAM_IDLE_TIMEOUT_MS / 1000}s`)
-          }
-          if (options.signal.aborted) {
-            reader.cancel().catch(() => {})
-            break
-          }
-          const { done, value } = await reader.read()
-          if (done) break
-          parser.feed(decoder.decode(value, { stream: true }))
-        }
-        parser.feed(decoder.decode())
-        clearStreamIdleTimers()
+        return webStream.getReader()
       },
       retryConfig,
     )
 
-    // Consume retry generator
-    let e = await generator.next()
-    while (!e.done) {
-      if (e.value.type === 'system') yield e.value
-      e = await generator.next()
+    let re = await retryGenerator.next()
+    while (!re.done) {
+      yield re.value
+      re = await retryGenerator.next()
     }
+    reader = re.value
+    if (!reader) throw new Error('Failed to get stream reader')
+
+    // Phase 2: consume stream directly and yield events
+    const eventBuffer: StreamEvent[] = []
+    let streamDone = false
+    let streamError: Error | null = null
+
+    const parser = createParser({
+      onEvent: (event: EventSourceMessage) => {
+        if (event.data === '[DONE]') return
+        try {
+          const json = JSON.parse(event.data) as OpenAIStreamChunk
+          for (const evt of adaptOpenAISSEToStreamEvents(json)) {
+            eventBuffer.push(evt)
+          }
+        } catch {
+          console.warn('Malformed SSE chunk:', event.data)
+        }
+      },
+    })
+
+    // Pump stream in background
+    const pumpPromise = (async () => {
+      try {
+        const decoder = new TextDecoder()
+        resetStreamIdleTimer()
+        while (true) {
+          if (streamIdleAborted || options.signal.aborted) {
+            reader!.cancel().catch(() => {})
+            break
+          }
+          const { done, value } = await reader!.read()
+          if (done) break
+          parser.feed(decoder.decode(value, { stream: true }))
+        }
+        parser.feed(decoder.decode())
+      } catch (err) {
+        streamError = err instanceof Error ? err : new Error(String(err))
+      } finally {
+        streamDone = true
+        clearStreamIdleTimers()
+      }
+    })()
+
+    // Yield events as they arrive
+    while (!streamDone || eventBuffer.length > 0) {
+      if (eventBuffer.length > 0) {
+        yield eventBuffer.shift()!
+        resetStreamIdleTimer()
+      } else {
+        await new Promise(r => setTimeout(r, 5))
+      }
+    }
+
+    await pumpPromise
+    if (streamError) throw streamError
   } finally {
     clearStreamIdleTimers()
     releaseStreamResources(reader)

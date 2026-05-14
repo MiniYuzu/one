@@ -1,5 +1,6 @@
 // src/engine/prompt/prompts.ts
-import { systemPromptSection, DANGEROUS_uncachedSystemPromptSection } from './systemPromptSections.js'
+import { systemPromptSection, DANGEROUS_uncachedSystemPromptSection, resolveSystemPromptSections } from './systemPromptSections.js'
+export { resolveSystemPromptSections }
 
 export function prependBullets(items: Array<string | string[]>): string[] {
   return items.flatMap(item =>
@@ -51,7 +52,7 @@ function getUsingYourToolsSection(enabledTools: Set<string>): string {
 export function buildSystemPrompt(options: {
   enabledTools: Set<string>
   customAppend?: string
-}): string[] {
+}): import('./systemPromptSections.js').SystemPromptSection[] {
   const sections = [
     systemPromptSection('intro', () => `You are ONE, a professional banking AI assistant. You help users process data, write documents, and generate reports. Be concise and professional.`),
     systemPromptSection('system', getSystemSection),
@@ -60,6 +61,5 @@ export function buildSystemPrompt(options: {
     systemPromptSection('using_tools', () => getUsingYourToolsSection(options.enabledTools)),
     ...(options.customAppend ? [DANGEROUS_uncachedSystemPromptSection('custom_append', () => options.customAppend!, 'User-provided dynamic suffix')] : []),
   ]
-  // In actual usage, call resolveSystemPromptSections(sections) to get strings
-  return sections.map(s => s.name)
+  return sections
 }

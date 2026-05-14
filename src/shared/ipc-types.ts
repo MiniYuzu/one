@@ -18,6 +18,8 @@ export interface EngineEvent {
     | 'chat:chunk'
     | 'chat:end'
     | 'chat:error'
+    | 'chat:tool_use'
+    | 'chat:tool_result'
     | 'state:sync'
     | 'offline:changed'
     | 'engine:ready'
