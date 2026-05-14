@@ -75,7 +75,8 @@ We adopt **Electron UtilityProcess** as the execution environment for the entire
          │           Backend BFF AI Gateway (Node.js/Go)           │
          │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
          │  │ LLM Proxy    │  │ Auth Service │  │ Data Masking │  │
-         │  │ (OpenAI fmt) │  │ (JWT/SSO)    │  │ (PII/DLP)    │  │
+         │  │ (Anthropic   │  │ (JWT/SSO)    │  │ (PII/DLP)    │  │
+         │  │  / Gateway)  │  │              │  │              │  │
          │  └──────┬───────┘  └──────────────┘  └──────┬───────┘  │
          │         │                                  │            │
          │         └──────────────────────────────────┘            │
@@ -118,7 +119,7 @@ We adopt **Electron UtilityProcess** as the execution environment for the entire
 | Module | Responsibility | Source |
 |---|---|---|
 | `engine.ts` | Entry point, bootstraps free-code core, creates `MessagePort` listener | New |
-| `api/client.ts` | LLM API client (SSE streaming, OpenAI-compatible). Supports multi-instance for model switching | free-code (retained) |
+| `api/client.ts` | LLM API client (SSE streaming, Anthropic-native /v1/messages). Supports multi-instance for model switching | free-code (retained) |
 | `state/AppStateStore.ts` | Session state, conversation history, config. Persists to `electron-store` | free-code (retained) |
 | `conversation/loop.ts` | Message loop: receive → build context → call LLM → stream chunks → handle tool calls | free-code (retained) |
 | `tools/registry.ts` | Tool registration and dispatch. `ITool` interface stub for Phase 2+ | free-code (retained) |
@@ -503,7 +504,7 @@ ONE/
 | UnifiedConsole component | Renderer | `components/console/UnifiedConsole.tsx` | `rounded-[20px]`, 32px touch targets |
 | MessageList streaming display | Renderer | `components/chat/MessageList.tsx` | `fadeUp` animation, `max-h-[60vh]` |
 | IPC type definitions | Shared | `src/shared/ipc-types.ts` | Single source of truth for all messages |
-| LLM SSE integration | Engine | `src/engine/api/client.ts` | OpenAI-compatible, `eventsource-parser` |
+| LLM SSE integration | Engine | `src/engine/api/anthropicClient.ts` | Anthropic-native /v1/messages, `eventsource-parser` |
 | Day 0 welcome injection | Engine | `state/AppStateStore.ts` | Pre-staged message + 3 action pills |
 | API health check | Engine | `src/engine/api/client.ts` | HEAD to `/health`, 3s timeout |
 

@@ -1,5 +1,7 @@
 # Phase 0 — 真实对话壳子 Implementation Plan
 
+> ⚠️ **DEPRECATED / 已废弃**：本文档中引用的 `streamChatCompletion`（OpenAI 兼容客户端）已在 **Phase 0.6** 中彻底移除。当前客户端引擎使用原生 Anthropic `/v1/messages` 协议（`streamAnthropicMessages`），由后端 AI 网关负责模型兼容。详见 `docs/plans/2026-05-14-phase0.6-anthropic-revert.md`。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 双击 `.exe` 打开窗口，输入自然语言，看到 AI 流式回复。包含 Day 0 欢迎引导、离线检测横幅、窗口约束、配置持久化。

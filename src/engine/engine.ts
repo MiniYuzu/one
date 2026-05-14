@@ -16,7 +16,7 @@ let apiKey: string | null = null
 
 const MODEL_REGISTRY: Record<string, { baseUrl: string; apiKey: string }> = {
   'MiniMax-M2.5': {
-    baseUrl: 'https://api.minimaxi.com/',
+    baseUrl: 'https://api.minimaxi.com/anthropic',
     apiKey: 'sk-api-RFxMBSPRgkRx_05c7eim3MiWKVJvmC_jQXij4y6yy0BwTg9FUMrfSrrXs7yCBmWedzFPkCbBeOr-VLCczPsfA9AXGCWZ4civZaLxCVfTfrG_py5skOqBEiY',
   },
   'gpt-4o': {
