@@ -5,7 +5,6 @@ import { Readable } from 'node:stream'
 import type { StreamEvent, SystemAPIErrorMessage, Usage } from '../types/message.js'
 import type { Tool } from '../types/tool.js'
 import { withRetry, CannotRetryError, type RetryConfig } from './withRetry.js'
-import { classifyAPIError, getAssistantMessageFromError } from './errors.js'
 import { adaptOpenAISSEToStreamEvents, type OpenAIStreamChunk } from './streamAdapter.js'
 
 export interface CallModelOptions {
@@ -22,12 +21,8 @@ export interface CallModelOptions {
 
 function releaseStreamResources(
   stream?: ReadableStreamDefaultReader<Uint8Array>,
-  response?: Response,
 ): void {
   stream?.cancel().catch(() => {})
-  if (response) {
-    response.body?.cancel().catch(() => {})
-  }
 }
 
 export async function* streamChatCompletion(
@@ -136,7 +131,7 @@ export async function* streamChatCompletion(
                 // Events are yielded via the outer generator, not here
               }
             } catch {
-              // ignore malformed JSON in stream
+              console.warn('Malformed SSE chunk:', event.data)
             }
           },
         })
@@ -145,7 +140,10 @@ export async function* streamChatCompletion(
         const decoder = new TextDecoder()
 
         while (true) {
-          if (streamIdleAborted || options.signal.aborted) {
+          if (streamIdleAborted) {
+            throw new Error(`Streaming idle timeout after ${STREAM_IDLE_TIMEOUT_MS / 1000}s`)
+          }
+          if (options.signal.aborted) {
             reader.cancel().catch(() => {})
             break
           }

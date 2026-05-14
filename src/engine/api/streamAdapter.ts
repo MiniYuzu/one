@@ -26,15 +26,23 @@ export interface OpenAIStreamChunk {
   }
 }
 
-export function* adaptOpenAISSEToStreamEvents(chunk: OpenAIStreamChunk): Generator<StreamEvent> {
+export function* adaptOpenAISSEToStreamEvents(
+  chunk: OpenAIStreamChunk,
+  state: { hasTextBlockStarted: boolean; toolCallStartedIndices: Set<number> } = {
+    hasTextBlockStarted: false,
+    toolCallStartedIndices: new Set(),
+  },
+): Generator<StreamEvent> {
   const choice = chunk.choices?.[0]
   if (!choice) return
 
   const delta = choice.delta
   const index = choice.index ?? 0
+  const isFinalChunk = choice.finish_reason !== undefined && choice.finish_reason !== null
 
   // Message start (first chunk with role)
   if (delta.role) {
+    state.hasTextBlockStarted = false
     yield {
       type: 'message_start',
       message: { usage: undefined },
@@ -43,16 +51,24 @@ export function* adaptOpenAISSEToStreamEvents(chunk: OpenAIStreamChunk): Generat
 
   // Text content
   if (delta.content !== undefined && delta.content !== null) {
-    yield {
-      type: 'content_block_start',
-      index,
-      content_block: { type: 'text', text: '' },
+    if (!state.hasTextBlockStarted) {
+      state.hasTextBlockStarted = true
+      yield {
+        type: 'content_block_start',
+        index,
+        content_block: { type: 'text', text: '' },
+      }
     }
     yield {
       type: 'content_block_delta',
       index,
       delta: { type: 'text_delta', text: delta.content },
     }
+  }
+
+  // Emit text block stop when stream ends or content becomes null after having started
+  if (state.hasTextBlockStarted && (isFinalChunk || delta.content === null)) {
+    state.hasTextBlockStarted = false
     yield {
       type: 'content_block_stop',
       index,
@@ -63,6 +79,7 @@ export function* adaptOpenAISSEToStreamEvents(chunk: OpenAIStreamChunk): Generat
   if (delta.tool_calls && delta.tool_calls.length > 0) {
     for (const tc of delta.tool_calls) {
       if (tc.id) {
+        state.toolCallStartedIndices.add(tc.index)
         yield {
           type: 'content_block_start',
           index: tc.index,
@@ -81,17 +98,22 @@ export function* adaptOpenAISSEToStreamEvents(chunk: OpenAIStreamChunk): Generat
           delta: { type: 'input_json_delta', partial_json: tc.function.arguments },
         }
       }
-      if (choice.finish_reason === 'tool_calls' || choice.finish_reason === 'stop') {
-        yield {
-          type: 'content_block_stop',
-          index: tc.index,
-        }
-      }
     }
   }
 
+  // Emit pending tool-call stops once on the final chunk
+  if (isFinalChunk && state.toolCallStartedIndices.size > 0) {
+    for (const idx of state.toolCallStartedIndices) {
+      yield {
+        type: 'content_block_stop',
+        index: idx,
+      }
+    }
+    state.toolCallStartedIndices.clear()
+  }
+
   // Usage & stop_reason on final chunk
-  if (chunk.usage || choice.finish_reason !== undefined) {
+  if (chunk.usage || isFinalChunk) {
     const usage: Usage | undefined = chunk.usage
       ? {
           inputTokens: chunk.usage.prompt_tokens ?? 0,
