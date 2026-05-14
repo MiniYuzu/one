@@ -14,6 +14,7 @@ export function createMainWindow(): BrowserWindow {
     minHeight: 600,
     show: false,
     titleBarStyle: 'hiddenInset',
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'index.cjs'),
       contextIsolation: true,

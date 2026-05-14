@@ -143,7 +143,14 @@ async function handleChatSend(payload: ChatSendPayload): Promise<void> {
     currentQueryEngine = createQueryEngine(effectiveConfig, effectiveApiKey)
     const messageId = generateId()
 
-    for await (const assistantMessage of currentQueryEngine.submitMessage(payload.content)) {
+    for await (const msg of currentQueryEngine.submitMessage(payload.content)) {
+      // 透传重试等 transient system 消息，作为临时状态展示
+      if (msg.type === 'system') {
+        sendEvent({ id: generateId(), type: 'chat:chunk', payload: { text: `> ${msg.content}\n\n`, messageId } })
+        continue
+      }
+
+      const assistantMessage = msg
       const textBlocks = assistantMessage.content.filter(c => c.type === 'text')
       const toolUseBlocks = assistantMessage.content.filter(c => c.type === 'tool_use')
 

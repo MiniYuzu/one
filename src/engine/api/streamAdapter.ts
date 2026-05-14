@@ -26,12 +26,23 @@ export interface OpenAIStreamChunk {
   }
 }
 
-export function* adaptOpenAISSEToStreamEvents(
-  chunk: OpenAIStreamChunk,
-  state: { hasTextBlockStarted: boolean; toolCallStartedIndices: Set<number> } = {
+export interface StreamAdapterState {
+  hasTextBlockStarted: boolean
+  toolCallStartedIndices: Set<number>
+  messageStarted: boolean
+}
+
+export function createStreamAdapterState(): StreamAdapterState {
+  return {
     hasTextBlockStarted: false,
     toolCallStartedIndices: new Set(),
-  },
+    messageStarted: false,
+  }
+}
+
+export function* adaptOpenAISSEToStreamEvents(
+  chunk: OpenAIStreamChunk,
+  state: StreamAdapterState,
 ): Generator<StreamEvent> {
   const choice = chunk.choices?.[0]
   if (!choice) return
@@ -40,9 +51,9 @@ export function* adaptOpenAISSEToStreamEvents(
   const index = choice.index ?? 0
   const isFinalChunk = choice.finish_reason !== undefined && choice.finish_reason !== null
 
-  // Message start (first chunk with role)
-  if (delta.role) {
-    state.hasTextBlockStarted = false
+  // Message start (first chunk with role only)
+  if (delta.role && !state.messageStarted) {
+    state.messageStarted = true
     yield {
       type: 'message_start',
       message: { usage: undefined },

@@ -1,6 +1,6 @@
 // src/renderer/hooks/useEngine.ts
 import { useEffect, useRef, useState, useCallback } from 'react'
-import type { EngineRequest, EngineEvent } from '../../shared/ipc-types.js'
+import type { EngineRequest, EngineEvent } from '@shared/ipc-types.js'
 
 export function useEngine(onEvent: (evt: EngineEvent) => void) {
   const [isConnected, setIsConnected] = useState(false)

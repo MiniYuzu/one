@@ -71,9 +71,15 @@ export function spawnEngine(mainWindow: BrowserWindow): Electron.UtilityProcess 
   enginePort = port1
 
   // Forward port2 to renderer
-  mainWindow.webContents.once('did-finish-load', () => {
+  // Race-condition guard: the window may already have finished loading
+  // before spawnEngine() is called (common in dev/HMR).
+  if (mainWindow.webContents.isLoadingMainFrame()) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      mainWindow.webContents.postMessage('engine:port', null, [port2])
+    })
+  } else {
     mainWindow.webContents.postMessage('engine:port', null, [port2])
-  })
+  }
 
   // Forward renderer messages to engine
   port1.on('message', (event) => {

@@ -12,7 +12,7 @@ import { ChatHeader } from './components/layout/ChatHeader.js'
 import { useEngine } from './hooks/useEngine.js'
 import { useTheme } from './hooks/useTheme.js'
 import { useResponsiveLayout } from './hooks/useResponsiveLayout.js'
-import type { EngineEvent } from '../../shared/ipc-types.js'
+import type { EngineEvent } from '@shared/ipc-types.js'
 
 export interface ChatMessage {
   id: string

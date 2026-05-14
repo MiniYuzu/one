@@ -1,11 +1,9 @@
 // src/engine/api/openaiClient.ts
 import axios from 'axios'
 import { createParser, type EventSourceMessage } from 'eventsource-parser'
-import { Readable } from 'node:stream'
-import type { StreamEvent, SystemAPIErrorMessage, Usage } from '../types/message.js'
+import type { StreamEvent, SystemAPIErrorMessage } from '../types/message.js'
 import type { Tool } from '../types/tool.js'
-import { withRetry, CannotRetryError, type RetryConfig } from './withRetry.js'
-import { adaptOpenAISSEToStreamEvents, type OpenAIStreamChunk } from './streamAdapter.js'
+import { adaptOpenAISSEToStreamEvents, createStreamAdapterState, type OpenAIStreamChunk } from './streamAdapter.js'
 
 export interface CallModelOptions {
   model: string
@@ -19,24 +17,19 @@ export interface CallModelOptions {
   onStreamingFallback?: () => void
 }
 
-function releaseStreamResources(
-  stream?: ReadableStreamDefaultReader<Uint8Array>,
-): void {
-  stream?.cancel().catch(() => {})
-}
-
 export async function* streamChatCompletion(
   messages: Array<{ role: string; content?: string | null | unknown[]; tool_calls?: unknown[]; tool_call_id?: string }>,
   systemPrompt: string | string[],
   options: CallModelOptions,
 ): AsyncGenerator<StreamEvent | SystemAPIErrorMessage, void> {
-  const url = `${options.baseUrl.replace(/\/$/, '')}/v1/chat/completions`
+  const isAnthropicNative = options.baseUrl.includes('anthropic.com')
+  const url = isAnthropicNative
+    ? `${options.baseUrl.replace(/\/$/, '')}/v1/messages`
+    : `${options.baseUrl.replace(/\/$/, '')}/v1/chat/completions`
   const system = Array.isArray(systemPrompt) ? systemPrompt.join('\n\n') : systemPrompt
 
-  // OpenAI-compatible vs Anthropic-native schema switch
-  const isAnthropic = options.baseUrl.includes('anthropic.com')
-  const apiTools = options.tools?.map(t =>
-    isAnthropic
+  const apiTools = options.tools?.map((t) =>
+    isAnthropicNative
       ? {
           name: t.name,
           description: t.description,
@@ -52,7 +45,7 @@ export async function* streamChatCompletion(
         },
   )
 
-  const body = {
+  const body: Record<string, unknown> = {
     model: options.model,
     messages: system ? [{ role: 'system', content: system }, ...messages] : messages,
     stream: true,
@@ -69,126 +62,87 @@ export async function* streamChatCompletion(
     Accept: 'text/event-stream',
   }
   if (options.apiKey) {
-    headers['Authorization'] = `Bearer ${options.apiKey}`
+    headers[isAnthropicNative ? 'x-api-key' : 'Authorization'] = isAnthropicNative
+      ? options.apiKey
+      : `Bearer ${options.apiKey}`
+    if (isAnthropicNative) headers['anthropic-version'] = '2023-06-01'
   }
 
-  // Streaming idle timeout watchdog
-  const STREAM_IDLE_TIMEOUT_MS = 90000
-  const STREAM_IDLE_WARNING_MS = STREAM_IDLE_TIMEOUT_MS / 2
-  let streamIdleAborted = false
-  let streamIdleTimer: ReturnType<typeof setTimeout> | null = null
-  let streamIdleWarningTimer: ReturnType<typeof setTimeout> | null = null
+  let attempt = 0
+  const maxRetries = 3
+  while (attempt <= maxRetries) {
+    try {
+      if (options.signal.aborted) throw new Error('ABORTED')
 
-  function clearStreamIdleTimers(): void {
-    if (streamIdleWarningTimer) { clearTimeout(streamIdleWarningTimer); streamIdleWarningTimer = null }
-    if (streamIdleTimer) { clearTimeout(streamIdleTimer); streamIdleTimer = null }
-  }
-  function resetStreamIdleTimer(): void {
-    clearStreamIdleTimers()
-    streamIdleWarningTimer = setTimeout(() => {
-      console.warn(`Streaming idle warning: no chunks received for ${STREAM_IDLE_WARNING_MS / 1000}s`)
-    }, STREAM_IDLE_WARNING_MS)
-    streamIdleTimer = setTimeout(() => {
-      streamIdleAborted = true
-      console.error(`Streaming idle timeout: aborting stream after ${STREAM_IDLE_TIMEOUT_MS / 1000}s`)
-    }, STREAM_IDLE_TIMEOUT_MS)
-  }
+      const response = await axios({
+        method: 'post',
+        url,
+        data: body,
+        headers,
+        responseType: 'stream',
+        signal: options.signal,
+        timeout: 60000,
+      })
 
-  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
-
-  try {
-    const retryConfig: RetryConfig = {
-      model: options.model,
-      fallbackModel: options.fallbackModel,
-      signal: options.signal,
-      querySource: 'repl_main_thread',
-    }
-
-    const retryGenerator = withRetry(
-      () => ({ client: 'axios' }),
-      async (_client, attempt, _context) => {
-        if (options.signal.aborted) throw new Error('ABORTED')
-
-        const axiosResponse = await axios({
-          method: 'post',
-          url,
-          data: body,
-          headers,
-          responseType: 'stream',
-          signal: options.signal,
-          timeout: 60000,
-        })
-
-        const webStream = Readable.toWeb(axiosResponse.data) as unknown as ReadableStream<Uint8Array>
-        return webStream.getReader()
-      },
-      retryConfig,
-    )
-
-    let re = await retryGenerator.next()
-    while (!re.done) {
-      yield re.value
-      re = await retryGenerator.next()
-    }
-    reader = re.value
-    if (!reader) throw new Error('Failed to get stream reader')
-
-    // Phase 2: consume stream directly and yield events
-    const eventBuffer: StreamEvent[] = []
-    let streamDone = false
-    let streamError: Error | null = null
-
-    const parser = createParser({
-      onEvent: (event: EventSourceMessage) => {
-        if (event.data === '[DONE]') return
-        try {
-          const json = JSON.parse(event.data) as OpenAIStreamChunk
-          for (const evt of adaptOpenAISSEToStreamEvents(json)) {
-            eventBuffer.push(evt)
+      const eventQueue: StreamEvent[] = []
+      const parserState = createStreamAdapterState()
+      const parser = createParser({
+        onEvent: (event: EventSourceMessage) => {
+          if (event.data === '[DONE]') return
+          try {
+            const json = JSON.parse(event.data) as OpenAIStreamChunk
+            for (const evt of adaptOpenAISSEToStreamEvents(json, parserState)) {
+              eventQueue.push(evt)
+            }
+          } catch {
+            // ignore malformed chunks
           }
-        } catch {
-          console.warn('Malformed SSE chunk:', event.data)
-        }
-      },
-    })
+        },
+      })
 
-    // Pump stream in background
-    const pumpPromise = (async () => {
-      try {
-        const decoder = new TextDecoder()
-        resetStreamIdleTimer()
-        while (true) {
-          if (streamIdleAborted || options.signal.aborted) {
-            reader!.cancel().catch(() => {})
-            break
-          }
-          const { done, value } = await reader!.read()
-          if (done) break
-          parser.feed(decoder.decode(value, { stream: true }))
+      const decoder = new TextDecoder()
+      for await (const chunk of response.data) {
+        if (options.signal.aborted) break
+        const text = typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true })
+        parser.feed(text)
+        while (eventQueue.length > 0) {
+          yield eventQueue.shift()!
         }
-        parser.feed(decoder.decode())
-      } catch (err) {
-        streamError = err instanceof Error ? err : new Error(String(err))
-      } finally {
-        streamDone = true
-        clearStreamIdleTimers()
       }
-    })()
-
-    // Yield events as they arrive
-    while (!streamDone || eventBuffer.length > 0) {
-      if (eventBuffer.length > 0) {
-        yield eventBuffer.shift()!
-        resetStreamIdleTimer()
-      } else {
-        await new Promise(r => setTimeout(r, 5))
+      const flush = decoder.decode()
+      if (flush) parser.feed(flush)
+      while (eventQueue.length > 0) {
+        yield eventQueue.shift()!
       }
+      return
+    } catch (error) {
+      if (axios.isCancel(error) || options.signal.aborted) return
+      attempt++
+      const isAxiosErr = axios.isAxiosError(error)
+      const status = isAxiosErr ? error.response?.status : undefined
+      // 网络层错误（无 response，如 ECONNRESET、ETIMEDOUT、TLS 握手失败）也应重试
+      const isNetworkError = isAxiosErr && !error.response
+      const isRetryable = status === 429 || (status !== undefined && status >= 500) || isNetworkError
+      if (!isRetryable || attempt > maxRetries) {
+        const errorData =
+          isAxiosErr && error.response?.data instanceof Buffer
+            ? error.response.data.toString()
+            : (error as Error).message
+        yield {
+          type: 'system',
+          subtype: 'api_error',
+          content: `请求被拒绝 (HTTP ${status ?? '网络'}): ${errorData}`,
+          errorCode: 'API_ERROR',
+        }
+        return
+      }
+      yield {
+        type: 'system',
+        subtype: 'api_error',
+        content: `网络繁忙，正在重试 (${attempt}/${maxRetries})...`,
+        errorCode: 'RETRY',
+      }
+      await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt)))
     }
-
-    await pumpPromise
-    if (streamError) throw streamError
-  } finally {
-    clearStreamIdleTimers()
-    releaseStreamResources(reader)
   }
 }

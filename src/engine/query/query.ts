@@ -57,11 +57,11 @@ function toApiMessages(messages: Message[]): Array<{ role: string; content?: str
     if (m.type === 'system') {
       return { role: 'system', content: m.content }
     }
-    return { role: m.type, content: '' }
+    return { role: (m as Message).type, content: '' }
   })
 }
 
-export async function* query(params: QueryParams): AsyncGenerator<AssistantMessage | UserMessage, void> {
+export async function* query(params: QueryParams): AsyncGenerator<AssistantMessage | UserMessage | SystemAPIErrorMessage, void> {
   const { messages, systemPrompt, tools, config, deps, abortController, workingDirectory } = params
   const maxTurns = config.maxTurns ?? 10
 
@@ -90,7 +90,12 @@ export async function* query(params: QueryParams): AsyncGenerator<AssistantMessa
 
     for await (const event of stream) {
       if (event.type === 'system') {
-        // SystemAPIErrorMessage — surface as assistant error message and stop
+        if (event.errorCode === 'RETRY') {
+          // 重试警告：透传给上层，不入历史，让 UI 展示进度
+          yield event
+          continue
+        }
+        // 致命错误（API_ERROR、鉴权失败、重试耗尽等）
         const errorMsg: AssistantMessage = {
           uuid: deps.uuid(),
           type: 'assistant',

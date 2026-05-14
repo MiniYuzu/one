@@ -62,6 +62,7 @@ export interface AppConfig {
   baseUrl: string
   model: string
   theme: 'light' | 'dark' | 'system'
+  apiKey?: string
 }
 
 // Renderer <-> Main (contextBridge)

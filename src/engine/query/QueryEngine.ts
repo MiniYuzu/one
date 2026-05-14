@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import type { Message, AssistantMessage } from '../types/message.js'
+import type { Message, AssistantMessage, SystemAPIErrorMessage } from '../types/message.js'
 import type { Tool } from '../types/tool.js'
 import { buildSystemPrompt, resolveSystemPromptSections } from '../prompt/prompts.js'
 import type { QueryConfig } from './queryConfig.js'
@@ -29,7 +29,7 @@ export class QueryEngine {
     this.abortController = new AbortController()
   }
 
-  async *submitMessage(prompt: string): AsyncGenerator<AssistantMessage, void> {
+  async *submitMessage(prompt: string): AsyncGenerator<AssistantMessage | SystemAPIErrorMessage, void> {
     const userMessage: Message = {
       uuid: randomUUID(),
       type: 'user',
@@ -56,6 +56,9 @@ export class QueryEngine {
         yield message
       } else if (message.type === 'user') {
         this.messages.push(message)
+      } else if (message.type === 'system') {
+        // 重试提示等 transient 消息不入历史，直接透传
+        yield message
       }
     }
   }

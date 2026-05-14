@@ -10,24 +10,34 @@ if (!gotTheLock) {
 }
 
 app.whenReady().then(() => {
-  if (process.env.NODE_ENV === 'development') {
-    const template: Electron.MenuItemConstructorOptions[] = [
-      {
-        label: 'View',
-        submenu: [
-          { role: 'reload' },
-          { role: 'forceReload' },
-          { role: 'toggleDevTools' },
-          { type: 'separator' },
-          { role: 'resetZoom' },
-          { role: 'zoomIn' },
-          { role: 'zoomOut' },
-          { type: 'separator' },
-          { role: 'togglefullscreen' },
-        ],
-      },
-    ]
-    Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+  const isMac = process.platform === 'darwin'
+
+  const template: Electron.MenuItemConstructorOptions[] = [
+    ...(isMac ? [{ role: 'appMenu' as const }] : []),
+    { role: 'editMenu' },
+    ...(process.env.NODE_ENV === 'development'
+      ? [
+          {
+            label: 'View',
+            submenu: [
+              { role: 'reload' as const },
+              { role: 'forceReload' as const },
+              { role: 'toggleDevTools' as const },
+              { type: 'separator' as const },
+              { role: 'resetZoom' as const },
+              { role: 'zoomIn' as const },
+              { role: 'zoomOut' as const },
+              { type: 'separator' as const },
+              { role: 'togglefullscreen' as const },
+            ],
+          },
+        ]
+      : []),
+  ]
+
+  if (template.length > 0) {
+    const menu = Menu.buildFromTemplate(template)
+    Menu.setApplicationMenu(menu)
   }
 
   const mainWindow = createMainWindow()
