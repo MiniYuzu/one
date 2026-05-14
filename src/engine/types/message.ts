@@ -1,21 +1,11 @@
 // src/engine/types/message.ts
 export type MessageRole = 'user' | 'assistant' | 'system'
 
-export interface ContentBlock {
-  type: 'text' | 'tool_use' | 'tool_result' | 'thinking'
-  // text
-  text?: string
-  // tool_use
-  id?: string
-  name?: string
-  input?: Record<string, unknown> | string
-  // tool_result
-  tool_use_id?: string
-  is_error?: boolean
-  // thinking
-  thinking?: string
-  signature?: string
-}
+export type ContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> | string }
+  | { type: 'tool_result'; tool_use_id: string; is_error?: boolean; content: string | Array<{ type: 'text'; text: string } | { type: 'image'; source: unknown }> }
+  | { type: 'thinking'; thinking: string; signature?: string }
 
 export interface Usage {
   inputTokens: number
@@ -24,30 +14,32 @@ export interface Usage {
   cacheCreationTokens?: number
 }
 
-export interface Message {
+export interface BaseMessage {
   uuid: string
-  type: MessageRole
   timestamp: number
+}
+
+export interface UserMessage extends BaseMessage {
+  type: 'user'
   content: string | ContentBlock[]
 }
 
-export interface AssistantMessage extends Message {
+export interface AssistantMessage extends BaseMessage {
   type: 'assistant'
+  content: ContentBlock[]
   stopReason?: string | null
   usage?: Usage
   requestId?: string
   apiError?: string
 }
 
-export interface UserMessage extends Message {
-  type: 'user'
-}
-
-export interface SystemMessage extends Message {
+export interface SystemMessage extends BaseMessage {
   type: 'system'
-  subtype?: string
+  subtype?: 'api_error'
   content: string
 }
+
+export type Message = UserMessage | AssistantMessage | SystemMessage
 
 export type ContentBlockDelta =
   | { type: 'text_delta'; text: string }
@@ -55,15 +47,13 @@ export type ContentBlockDelta =
   | { type: 'signature_delta'; signature: string }
   | { type: 'input_json_delta'; partial_json: string }
 
-export interface StreamEvent {
-  type: 'message_start' | 'content_block_start' | 'content_block_delta' | 'content_block_stop' | 'message_delta' | 'message_stop'
-  message?: { usage?: Usage }
-  index?: number
-  content_block?: ContentBlock
-  delta?: ContentBlockDelta
-  usage?: Usage
-  stop_reason?: string | null
-}
+export type StreamEvent =
+  | { type: 'message_start'; message: { usage?: Usage } }
+  | { type: 'content_block_start'; index: number; content_block: ContentBlock }
+  | { type: 'content_block_delta'; index: number; delta: ContentBlockDelta }
+  | { type: 'content_block_stop'; index: number }
+  | { type: 'message_delta'; usage?: Usage; stop_reason?: string | null }
+  | { type: 'message_stop' }
 
 export interface SystemAPIErrorMessage {
   type: 'system'

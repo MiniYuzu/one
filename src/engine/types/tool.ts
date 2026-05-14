@@ -13,8 +13,12 @@ export interface Tool {
   backfillObservableInput?: (input: Record<string, unknown>) => void
 }
 
+export type ToolResultContentItem =
+  | { type: 'text'; text: string }
+  | { type: 'image'; source: unknown }
+
 export interface ToolResult {
-  content: string | Array<{ type: 'text'; text: string } | { type: 'image'; source: unknown }>
+  content: string | ToolResultContentItem[]
   is_error?: boolean
 }
 
