@@ -1,6 +1,6 @@
 // src/engine/engine.ts
 import type { EngineRequest, EngineEvent, ChatSendPayload, ConfigUpdatePayload, AppConfig } from '../shared/ipc-types.js'
-import { streamChatCompletion } from './api/openaiClient.js'
+import { streamAnthropicMessages } from './api/anthropicClient.js'
 import { getConfig, setConfig } from './state/config-store.js'
 import { DAY_ZERO_WELCOME, HEALTH_CHECK_INTERVAL_MS, HEALTH_CHECK_TIMEOUT_MS } from '../shared/constants.js'
 import axios from 'axios'
@@ -98,7 +98,7 @@ function createQueryEngine(config: AppConfig, effectiveApiKey: string | null): Q
     tools: ALL_TOOLS,
     deps: {
       callModel: (messages, systemPrompt, options) =>
-        streamChatCompletion(messages, systemPrompt, {
+        streamAnthropicMessages(messages, systemPrompt, {
           model: options.model,
           baseUrl: options.baseUrl,
           apiKey: options.apiKey,
