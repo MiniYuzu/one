@@ -21,7 +21,7 @@ export interface BaseMessage {
 
 export interface UserMessage extends BaseMessage {
   type: 'user'
-  content: string | ContentBlock[]
+  content: ContentBlock[]
 }
 
 export interface AssistantMessage extends BaseMessage {
