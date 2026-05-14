@@ -14,51 +14,45 @@ export interface QueryParams {
   workingDirectory: string
 }
 
-function toApiMessages(messages: Message[]): Array<{ role: string; content?: string | null | unknown[]; tool_calls?: unknown[]; tool_call_id?: string }> {
-  return messages.map((m) => {
-    if (m.type === 'user') {
-      const blocks = m.content.map((c): unknown => {
-        if (c.type === 'text') return { type: 'text', text: c.text }
-        if (c.type === 'tool_result') {
+function toApiMessages(messages: Message[]): Array<{ role: 'user' | 'assistant'; content: unknown }> {
+  return messages
+    .filter((m): m is UserMessage | AssistantMessage => m.type === 'user' || m.type === 'assistant')
+    .map((m) => {
+      if (m.type === 'user') {
+        const blocks = m.content.map((c) => {
+          if (c.type === 'text') {
+            return { type: 'text', text: c.text }
+          }
+          if (c.type === 'tool_result') {
+            return {
+              type: 'tool_result',
+              tool_use_id: c.tool_use_id,
+              content: typeof c.content === 'string' ? c.content : JSON.stringify(c.content),
+              is_error: c.is_error,
+            }
+          }
+          return c
+        })
+        return { role: 'user', content: blocks }
+      }
+
+      // assistant
+      const blocks = m.content.map((c) => {
+        if (c.type === 'text') {
+          return { type: 'text', text: c.text }
+        }
+        if (c.type === 'tool_use') {
           return {
-            type: 'tool_result',
-            tool_use_id: c.tool_use_id,
-            content: typeof c.content === 'string' ? c.content : JSON.stringify(c.content),
-            is_error: c.is_error,
+            type: 'tool_use',
+            id: c.id,
+            name: c.name,
+            input: typeof c.input === 'string' ? JSON.parse(c.input || '{}') : c.input,
           }
         }
         return c
       })
-      const hasToolResult = m.content.some(c => c.type === 'tool_result')
-      if (hasToolResult && blocks.every(b => (b as { type?: string }).type === 'tool_result')) {
-        // OpenAI-compatible tool result format: array of content items
-        return { role: 'user', content: blocks }
-      }
-      return { role: 'user', content: blocks.length === 1 && (blocks[0] as { type?: string }).type === 'text' ? (blocks[0] as { text: string }).text : blocks }
-    }
-    if (m.type === 'assistant') {
-      const toolUses = m.content.filter((c): c is ContentBlock & { type: 'tool_use' } => c.type === 'tool_use')
-      const textParts = m.content.filter((c): c is ContentBlock & { type: 'text' } => c.type === 'text')
-      const toolCalls = toolUses.length > 0
-        ? toolUses.map((tu) => ({
-            type: 'function' as const,
-            id: tu.id,
-            function: {
-              name: tu.name,
-              arguments: typeof tu.input === 'string' ? tu.input : JSON.stringify(tu.input),
-            },
-          }))
-        : undefined
-      const content = textParts.length > 0
-        ? textParts.map(t => t.text).join('')
-        : null
-      return { role: 'assistant', content, tool_calls: toolCalls }
-    }
-    if (m.type === 'system') {
-      return { role: 'system', content: m.content }
-    }
-    return { role: (m as Message).type, content: '' }
-  })
+      return { role: 'assistant', content: blocks }
+    })
 }
 
 export async function* query(params: QueryParams): AsyncGenerator<AssistantMessage | UserMessage | SystemAPIErrorMessage, void> {
